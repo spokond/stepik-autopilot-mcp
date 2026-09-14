@@ -1,7 +1,4 @@
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from sqlalchemy.ext.asyncio import AsyncConnection
+from sqlalchemy.ext.asyncio import AsyncConnection  # noqa: TC002 - Dishka resolves constructor annotations at runtime.
 
 
 class SQLAlchemyRepository:

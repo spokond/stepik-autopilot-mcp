@@ -1,12 +1,12 @@
 from typing import TYPE_CHECKING
 
 from sqlalchemy import MetaData, inspect
+from sqlalchemy.ext.asyncio import AsyncEngine  # noqa: TC002 - Dishka resolves constructor annotations at runtime.
 
 from stepik_autopilot.infra.tables import metadata
 
 if TYPE_CHECKING:
     from sqlalchemy.engine import Connection
-    from sqlalchemy.ext.asyncio import AsyncEngine
 
 
 class DatabaseInitializer:

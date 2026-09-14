@@ -74,8 +74,10 @@ def build_mcp(settings: Settings) -> MCPServer:
 
 
 def bind_handler(handler: Callable[..., object], container: AsyncContainer) -> Callable[..., object]:
-    bound = partial(handler, container)
-    return update_wrapper(bound, handler)
+    bound = update_wrapper(partial(handler, container), handler)
+    # Keep the partial's signature so MCP does not expose the bound DI container.
+    del bound.__wrapped__
+    return bound
 
 
 async def run_mcp(settings: Settings, transport: str, host: str, port: int) -> None:

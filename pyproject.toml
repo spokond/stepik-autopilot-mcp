@@ -27,6 +27,10 @@ test = [
   "pytest>=9.1.1",
 ]
 
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"
+
 [tool.basedpyright]
 extraPaths = ["src"]
 include = ["src", "tests"]
@@ -108,3 +112,6 @@ max-args = 7
   "S106",  # Разрешить хардкод паролей
   "FBT003"
 ]
+
+[tool.uv.build-backend]
+module-name = "stepik_autopilot"
