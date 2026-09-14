@@ -75,6 +75,7 @@ async def stepik_plan(container: AsyncContainer, arguments: PlanInput) -> PlanOu
                     arguments.course_id,
                     arguments.selection,
                     tuple(arguments.explicit_step_ids) if arguments.explicit_step_ids else None,
+                    tuple(arguments.section_numbers) if arguments.section_numbers else None,
                 )
             )
             return PlanOutput.from_dto(value)
@@ -93,6 +94,7 @@ async def stepik_run_start(container: AsyncContainer, arguments: RunStartInput) 
                 arguments.selection,
                 arguments.grading,
                 tuple(arguments.explicit_step_ids) if arguments.explicit_step_ids else None,
+                tuple(arguments.section_numbers) if arguments.section_numbers else None,
                 arguments.request_id,
             )
             return RunStartOutput.from_dto(await (await request_container.get(StartRun)).execute(input))

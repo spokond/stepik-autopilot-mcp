@@ -27,6 +27,7 @@ class PlanInputDTO:
     course_id: str
     selection: Selection
     explicit_step_ids: tuple[str, ...] | None
+    section_numbers: tuple[int, ...] | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,6 +39,7 @@ class StartRunInputDTO:
     selection: Selection
     grading: Grading
     explicit_step_ids: tuple[str, ...] | None
+    section_numbers: tuple[int, ...] | None
     request_id: str
 
 

@@ -37,6 +37,14 @@ class CoursePageDTO:
 
 
 @dataclass(frozen=True, slots=True)
+class CourseSectionDTO:
+    number: int
+    id: str
+    title: str
+    step_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class TaskDTO:
     step_id: str
     assignment_id: str
@@ -48,6 +56,12 @@ class TaskDTO:
     failed: bool
     choice_options: tuple[str, ...] = ()
     is_multiple_choice: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class CourseContentDTO:
+    tasks: tuple[TaskDTO, ...]
+    sections: tuple[CourseSectionDTO, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,6 +161,7 @@ class PlanDTO:
     selection: Selection
     counts: PlanCountsDTO
     types: tuple[TaskTypeCountDTO, ...]
+    sections: tuple[CourseSectionDTO, ...]
 
 
 @dataclass(frozen=True, slots=True)
