@@ -1,0 +1,117 @@
+[project]
+name = "stepik-autopilot-mcp"
+version = "0.1.0"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+  "aiohttp[speedups]>=3.14.3",
+  "aiosqlite>=0.22.1",
+  "anyio>=4.15.1",
+  "basedpyright>=1.40.1",
+  "dishka>=1.10.1",
+  "mcp>=2.2.0",
+  "pydantic-settings>=2.15.0",
+  "sqlalchemy[asyncio]>=2.0.52",
+]
+
+[project.scripts]
+stepik-autopilot = "stepik_autopilot.presentation.server:main"
+
+[dependency-groups]
+dev = [
+  "basedpyright>=1.40.1",
+  "mcp[cli]>=2.2.0",
+  "ruff>=0.16.7",
+]
+test = [
+  "pytest>=9.1.1",
+]
+
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"
+
+[tool.basedpyright]
+extraPaths = ["src"]
+include = ["src", "tests"]
+reportUnusedCallResult = "none"
+reportAny = "none"
+reportExplicitAny = "none"
+reportUnknownArgumentType = "none"
+reportUnknownMemberType = "none"
+reportMissingTypeStubs = "warning"
+reportUnannotatedClassAttribute = "none"
+reportImportCycles = "none"
+reportUnknownVariableType = false
+exclude = ["**/__pycache__"]
+
+[tool.pytest]
+pythonpath = [".", "src"]
+anyio_mode = "auto"
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["ALL"]
+exclude = []
+ignore = [
+  "FA102",
+  "ANN001",
+  "D100",
+  "D101",
+  "D102",
+  "D103",
+  "D104",
+  "D105",
+  "D107",
+  "D203",
+  "D205",
+  "D213",
+  "TC001",
+  "N805",
+  "RUF001",
+  "RUF002",
+  "RUF003",
+  "W291",
+  "TD002",
+  "TD003",
+  "TD004",
+  "FIX002",
+  "ERA001",
+  "SIM117",
+  "FBT001",
+  "COM812",
+  "ISC001",  # conflicts with formatter
+  "PGH003",
+  "CPY001",
+  "A001",
+  "A002",
+  "C901",
+  "FBT003",
+  "PERF401",
+  "PLR0913",
+  "PLR0915",
+  "PLR0917",
+  "PLR2004"
+]
+
+[tool.ruff.lint.pylint]
+max-args = 7
+
+[tool.ruff.lint.extend-per-file-ignores]
+"tests/**" = [
+  "S101",  # Allow asserts in tests
+  "ANN201",  # Allow untyped return since all test returns nothing
+  "ARG001",  # Фикстуры с side-effects не всегда используются в теле теста
+  "ARG002",
+  "N802",  # Тестовые имена могут содержать AND/OR для семантики логических операций
+  "SLF001",
+  "PLR2004",
+  "S311",
+  "S106",  # Разрешить хардкод паролей
+  "FBT003"
+]
+
+[tool.uv.build-backend]
+module-name = "stepik_autopilot"
