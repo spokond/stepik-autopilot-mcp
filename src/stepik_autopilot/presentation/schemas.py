@@ -1,6 +1,6 @@
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from stepik_autopilot.application.dto import (
     BatchCommitDTO,
@@ -8,6 +8,7 @@ from stepik_autopilot.application.dto import (
     ChoiceAnswerDTO,
     CommitAnswerDTO,
     CoursePageDTO,
+    CourseSectionDTO,
     ItemResourceDTO,
     NextBatchStateDTO,
     PlanCountsDTO,
@@ -50,11 +51,25 @@ class CoursesOutput(StrictModel):
         return cls(courses=[CourseOutput(id=x.id, title=x.title) for x in value.courses], next_cursor=value.next_cursor)
 
 
+class CourseSectionOutput(StrictModel):
+    number: int = Field(description="One-based section number in the course outline.")
+    section_id: str = Field(description="Stepik section identifier.")
+    title: str = Field(description="Section title.")
+    step_ids: list[str] = Field(description="Selected Stepik steps in this section.")
+
+    @classmethod
+    def from_dto(cls, value: CourseSectionDTO) -> CourseSectionOutput:
+        return cls(number=value.number, section_id=value.id, title=value.title, step_ids=list(value.step_ids))
+
+
 class PlanOutput(StrictModel):
     course_id: str = Field(description="Planned course.")
     selection: str = Field(description="Selection mode.")
     counts: PlanCountsOutput = Field(description="Counted plan categories.")
     task_types: list[TaskTypeCountOutput] = Field(description="Observed Stepik task kinds and counts.")
+    sections: list[CourseSectionOutput] = Field(
+        description="Resolved section numbers, Stepik identifiers, titles, and selected steps."
+    )
 
     @classmethod
     def from_dto(cls, value: PlanDTO) -> PlanOutput:
@@ -63,6 +78,7 @@ class PlanOutput(StrictModel):
             selection=value.selection.value,
             counts=PlanCountsOutput.from_dto(value.counts),
             task_types=[TaskTypeCountOutput.from_dto(item) for item in value.types],
+            sections=[CourseSectionOutput.from_dto(item) for item in value.sections],
         )
 
 
@@ -308,7 +324,26 @@ class CourseListInput(StrictModel):
 class PlanInput(StrictModel):
     course_id: Identifier
     selection: Selection = Selection.REMAINING
-    explicit_step_ids: list[Identifier] | None = None
+    explicit_step_ids: list[Identifier] | None = Field(default=None, min_length=1)
+    section_numbers: list[Annotated[int, Field(ge=1)]] | None = Field(default=None, min_length=1)
+
+    @model_validator(mode="after")
+    def validate_selection_scope(self) -> PlanInput:
+        has_steps = self.explicit_step_ids is not None
+        has_sections = self.section_numbers is not None
+        if has_steps and has_sections:
+            msg = "explicit_step_ids and section_numbers are mutually exclusive"
+            raise ValueError(msg)
+        if self.selection is Selection.EXPLICIT and not (has_steps or has_sections):
+            msg = "explicit selection requires explicit_step_ids or section_numbers"
+            raise ValueError(msg)
+        if self.selection is not Selection.EXPLICIT and (has_steps or has_sections):
+            msg = "explicit_step_ids and section_numbers require selection='explicit'"
+            raise ValueError(msg)
+        if self.section_numbers is not None and len(set(self.section_numbers)) != len(self.section_numbers):
+            msg = "section_numbers must not contain duplicates"
+            raise ValueError(msg)
+        return self
 
 
 class RunStartInput(PlanInput):

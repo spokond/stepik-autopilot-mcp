@@ -6,13 +6,15 @@ from stepik_autopilot.application.dto import (
     AttemptDTO,
     ChoiceDatasetDTO,
     ChoiceReplyDTO,
+    CourseContentDTO,
     CoursePageDTO,
+    CourseSectionDTO,
     CourseSummaryDTO,
     RemoteSubmissionDTO,
     TaskDTO,
 )
 from stepik_autopilot.core.enums import ItemState
-from stepik_autopilot.core.exceptions import ExternalServiceError, UnsupportedTaskError
+from stepik_autopilot.core.exceptions import ExternalServiceError, UnsupportedTaskError, ValidationError
 
 from .client import StepikApiClient
 
@@ -57,18 +59,29 @@ class StepikCourseRepository:
         next_cursor = cursor + 1 if isinstance(meta, Mapping) and bool(meta.get("has_next")) else None
         return CoursePageDTO(courses, next_cursor)
 
-    async def tasks(self, course_id: str, explicit_step_ids: tuple[str, ...] | None = None) -> tuple[TaskDTO, ...]:
+    async def content(
+        self,
+        course_id: str,
+        explicit_step_ids: tuple[str, ...] | None = None,
+        section_numbers: tuple[int, ...] | None = None,
+    ) -> CourseContentDTO:
         requested = frozenset(explicit_step_ids) if explicit_step_ids is not None else None
+        requested_sections = frozenset(section_numbers) if section_numbers is not None else None
         course = _objects(await self._client.request("GET", f"/api/courses/{course_id}"), "courses")
         if not course:
             msg = "Stepik course response is malformed"
             raise ExternalServiceError(msg)
         tasks: list[TaskDTO] = []
-        for section_id in self._identifiers(course[0].get("sections")):
+        selected_sections: list[CourseSectionDTO] = []
+        resolved_steps: set[str] = set()
+        course_section_ids = self._identifiers(course[0].get("sections"))
+        for section_number, section_id in self._selected_sections(course_section_ids, requested_sections):
             sections = _objects(await self._client.request("GET", f"/api/sections/{section_id}"), "sections")
             if not sections:
                 continue
-            for unit_id in self._identifiers(sections[0].get("units")):
+            section = sections[0]
+            section_step_ids: list[str] = []
+            for unit_id in self._identifiers(section.get("units")):
                 units = _objects(await self._client.request("GET", f"/api/units/{unit_id}"), "units")
                 if not units:
                     continue
@@ -82,6 +95,8 @@ class StepikCourseRepository:
                     step_id = str(assignment["step"])
                     if requested is not None and step_id not in requested:
                         continue
+                    section_step_ids.append(step_id)
+                    resolved_steps.add(step_id)
                     step_values = await self._by_ids("/api/steps", "steps", (step_id,))
                     if not step_values:
                         continue
@@ -91,7 +106,28 @@ class StepikCourseRepository:
                             step_values[0], course_id, assignment_id, progress_id, await self._progress(progress_id)
                         )
                     )
-        return tuple(tasks)
+            if requested_sections is not None or (requested is not None and section_step_ids):
+                selected_sections.append(
+                    CourseSectionDTO(section_number, section_id, str(section.get("title", "")), tuple(section_step_ids))
+                )
+        if requested is not None and (missing_steps := requested.difference(resolved_steps)):
+            missing = sorted(missing_steps)
+            msg = f"course step ids not found: {', '.join(missing)}"
+            raise ValidationError(msg)
+        return CourseContentDTO(tuple(tasks), tuple(selected_sections))
+
+    @staticmethod
+    def _selected_sections(
+        section_ids: tuple[str, ...], requested: frozenset[int] | None
+    ) -> tuple[tuple[int, str], ...]:
+        numbered = tuple(enumerate(section_ids, start=1))
+        if requested is None:
+            return numbered
+        missing = sorted(requested - set(range(1, len(section_ids) + 1)))
+        if missing:
+            msg = f"course section numbers not found: {', '.join(map(str, missing))}"
+            raise ValidationError(msg)
+        return tuple(item for item in numbered if item[0] in requested)
 
     async def _progress(self, progress_id: str | None) -> bool | None:
         if progress_id is None:

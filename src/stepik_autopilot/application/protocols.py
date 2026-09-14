@@ -5,6 +5,7 @@ from stepik_autopilot.application.dto import (
     BatchCommitDTO,
     BatchDTO,
     ChoiceReplyDTO,
+    CourseContentDTO,
     CoursePageDTO,
     ItemDTO,
     NextBatchStateDTO,
@@ -76,7 +77,12 @@ class StepikAccountGateway(Protocol):
 
 class StepikCourseGateway(Protocol):
     async def courses(self, query: str | None, enrolled_only: bool, cursor: int, limit: int) -> CoursePageDTO: ...
-    async def tasks(self, course_id: str, explicit_step_ids: tuple[str, ...] | None = None) -> tuple[TaskDTO, ...]: ...
+    async def content(
+        self,
+        course_id: str,
+        explicit_step_ids: tuple[str, ...] | None = None,
+        section_numbers: tuple[int, ...] | None = None,
+    ) -> CourseContentDTO: ...
 
 
 class StepikAttemptGateway(Protocol):

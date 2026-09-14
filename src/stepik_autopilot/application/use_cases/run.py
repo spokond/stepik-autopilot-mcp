@@ -81,7 +81,8 @@ class PlanCourse:
         self._courses, self._adapters = courses, adapters
 
     async def execute(self, input: PlanInputDTO) -> PlanDTO:
-        tasks = await self._courses.tasks(input.course_id, input.explicit_step_ids)
+        content = await self._courses.content(input.course_id, input.explicit_step_ids, input.section_numbers)
+        tasks = content.tasks
         types = tuple(
             TaskTypeCountDTO(kind, sum(task.kind == kind for task in tasks))
             for kind in sorted({task.kind for task in tasks})
@@ -95,7 +96,11 @@ class PlanCourse:
         )
         available = sum(task.kind == "choice" and task.is_passed is False for task in tasks)
         return PlanDTO(
-            input.course_id, input.selection, PlanCountsDTO(available, passed, unknown, excluded, unsupported), types
+            input.course_id,
+            input.selection,
+            PlanCountsDTO(available, passed, unknown, excluded, unsupported),
+            types,
+            content.sections,
         )
 
 
@@ -127,9 +132,20 @@ class StartRun:
             msg = "inspect is read-only; use stepik_plan"
             raise ValidationError(msg)
         account = await self._accounts.current_account()
-        digest = hash_text(
-            f"{input.course_id}:{input.mode}:{input.strategy}:{input.target}:{input.selection}:{input.grading}:{input.explicit_step_ids}"
+        payload = ":".join(
+            (
+                input.course_id,
+                input.mode,
+                input.strategy,
+                input.target,
+                input.selection,
+                input.grading,
+                str(input.explicit_step_ids),
+            )
         )
+        if input.section_numbers is not None:
+            payload = f"{payload}:{input.section_numbers}"
+        digest = hash_text(payload)
         cached = await self._idempotency.get_start(account, input.request_id, digest)
         if cached is not None:
             return cached
@@ -145,7 +161,7 @@ class StartRun:
             RunState.DISPATCHING,
         )
         await self._runs.create_run(run)
-        tasks = await self._courses.tasks(input.course_id, input.explicit_step_ids)
+        tasks = (await self._courses.content(input.course_id, input.explicit_step_ids, input.section_numbers)).tasks
         eligible = tuple(
             task
             for task in tasks
