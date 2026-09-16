@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
 
-from stepik_autopilot.application.dto import ChoiceReplyDTO, OperationDTO
+from stepik_autopilot.application.dto import ChoiceReplyDTO, CodeReplyDTO, OperationDTO, SqlReplyDTO, TextReplyDTO
 from stepik_autopilot.core.enums import OperationState
 from stepik_autopilot.core.exceptions import ConflictError
 from stepik_autopilot.infra.tables import items, operations, runs
@@ -20,12 +20,12 @@ class OperationRepository(SQLAlchemyRepository):
             id=operation.id,
             account_id=operation.account_id,
             item_id=operation.item_id,
-            kind="choice_submission",
+            kind="submission",
             state=operation.state.value,
             reply_hash=operation.reply_hash,
             request_payload={
                 "attempt_id": operation.attempt_id,
-                "choices": list(operation.reply.choices),
+                "reply": self._reply_value(operation.reply),
             },
             upstream_id=operation.upstream_id,
         )
@@ -60,17 +60,43 @@ class OperationRepository(SQLAlchemyRepository):
         if not isinstance(payload, Mapping):
             msg = "stored operation payload is malformed"
             raise ConflictError(msg)
-        choices = payload.get("choices")
-        if not isinstance(choices, list):
-            msg = "stored operation choices are malformed"
-            raise ConflictError(msg)
         return OperationDTO(
             id=str(row["id"]),
             account_id=str(row["account_id"]),
             item_id=str(row["item_id"]),
             attempt_id=str(payload["attempt_id"]),
-            reply=ChoiceReplyDTO(tuple(bool(choice) for choice in choices)),
+            reply=OperationRepository._reply(payload.get("reply")),
             state=OperationState(str(row["state"])),
             reply_hash=str(row["reply_hash"]),
             upstream_id=str(row["upstream_id"]) if row["upstream_id"] is not None else None,
         )
+
+    @staticmethod
+    def _reply_value(reply: ChoiceReplyDTO | TextReplyDTO | SqlReplyDTO | CodeReplyDTO) -> dict[str, object]:
+        if isinstance(reply, ChoiceReplyDTO):
+            return {"kind": "choice", "choices": list(reply.choices)}
+        if isinstance(reply, TextReplyDTO):
+            return {"kind": "text", "text": reply.text}
+        if isinstance(reply, SqlReplyDTO):
+            return {"kind": "sql", "solve_sql": reply.solve_sql}
+        return {"kind": "code", "language": reply.language, "code": reply.code}
+
+    @staticmethod
+    def _reply(raw: object) -> ChoiceReplyDTO | TextReplyDTO | SqlReplyDTO | CodeReplyDTO:
+        msg = "stored operation reply is malformed"
+        if not isinstance(raw, Mapping):
+            raise ConflictError(msg)
+        choices = raw.get("choices")
+        text = raw.get("text")
+        language = raw.get("language")
+        code = raw.get("code")
+        solve_sql = raw.get("solve_sql")
+        if raw.get("kind") == "choice" and isinstance(choices, list):
+            return ChoiceReplyDTO(tuple(bool(value) for value in choices))
+        if raw.get("kind") == "text" and isinstance(text, str):
+            return TextReplyDTO(text)
+        if raw.get("kind") == "sql" and isinstance(solve_sql, str):
+            return SqlReplyDTO(solve_sql)
+        if raw.get("kind") == "code" and isinstance(language, str) and isinstance(code, str):
+            return CodeReplyDTO(language, code)
+        raise ConflictError(msg)

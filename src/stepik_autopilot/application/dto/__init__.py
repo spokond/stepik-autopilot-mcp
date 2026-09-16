@@ -1,5 +1,6 @@
 from .answers import (
     ChoiceAnswerDTO,
+    CodeAnswerDTO,
     CollectResultsInputDTO,
     CommitAnswerDTO,
     CommitBatchInputDTO,
@@ -9,7 +10,9 @@ from .answers import (
     ReadInputDTO,
     RunControlInputDTO,
     RunStatusInputDTO,
+    SqlAnswerDTO,
     StartRunInputDTO,
+    TextAnswerDTO,
 )
 from .models import (
     AttemptDTO,
@@ -18,6 +21,7 @@ from .models import (
     ChoiceDatasetDTO,
     ChoiceReplyDTO,
     ChoiceTaskDTO,
+    CodeReplyDTO,
     CourseContentDTO,
     CoursePageDTO,
     CourseSectionDTO,
@@ -37,11 +41,13 @@ from .models import (
     RunResourceDTO,
     RunStartedDTO,
     RunStatusDTO,
+    SqlReplyDTO,
     SubmissionDTO,
     SubmissionReceiptDTO,
     SubmissionResourceDTO,
     TaskDTO,
     TaskTypeCountDTO,
+    TextReplyDTO,
 )
 
 __all__ = (
@@ -52,6 +58,8 @@ __all__ = (
     "ChoiceDatasetDTO",
     "ChoiceReplyDTO",
     "ChoiceTaskDTO",
+    "CodeAnswerDTO",
+    "CodeReplyDTO",
     "CollectResultsInputDTO",
     "CommitAnswerDTO",
     "CommitBatchInputDTO",
@@ -80,10 +88,14 @@ __all__ = (
     "RunStartedDTO",
     "RunStatusDTO",
     "RunStatusInputDTO",
+    "SqlAnswerDTO",
+    "SqlReplyDTO",
     "StartRunInputDTO",
     "SubmissionDTO",
     "SubmissionReceiptDTO",
     "SubmissionResourceDTO",
     "TaskDTO",
     "TaskTypeCountDTO",
+    "TextAnswerDTO",
+    "TextReplyDTO",
 )

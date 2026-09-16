@@ -25,6 +25,22 @@ class ChoiceReplyDTO:
 
 
 @dataclass(frozen=True, slots=True)
+class TextReplyDTO:
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
+class SqlReplyDTO:
+    solve_sql: str
+
+
+@dataclass(frozen=True, slots=True)
+class CodeReplyDTO:
+    language: str
+    code: str
+
+
+@dataclass(frozen=True, slots=True)
 class CourseSummaryDTO:
     id: str
     title: str
@@ -68,8 +84,9 @@ class CourseContentDTO:
 class AttemptDTO:
     id: str
     step_id: str
-    dataset: ChoiceDatasetDTO
+    dataset: ChoiceDatasetDTO | None
     expires_at: str | None
+    code_languages: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,6 +112,7 @@ class ItemDTO:
     question: str
     state: ItemState
     choice_dataset: ChoiceDatasetDTO | None = None
+    code_languages: tuple[str, ...] = ()
     attempt_id: str | None = None
     expires_at: str | None = None
     batch_id: str | None = None
@@ -134,7 +152,7 @@ class OperationDTO:
     account_id: str
     item_id: str
     attempt_id: str
-    reply: ChoiceReplyDTO
+    reply: ChoiceReplyDTO | TextReplyDTO | SqlReplyDTO | CodeReplyDTO
     state: OperationState
     reply_hash: str
     upstream_id: str | None = None
@@ -173,6 +191,8 @@ class ChoiceTaskDTO:
     options: tuple[str, ...]
     is_multiple_choice: bool
     expires_at: str | None
+    kind: str = "choice"
+    code_languages: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

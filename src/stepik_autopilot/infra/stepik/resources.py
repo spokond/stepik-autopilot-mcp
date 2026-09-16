@@ -6,12 +6,15 @@ from stepik_autopilot.application.dto import (
     AttemptDTO,
     ChoiceDatasetDTO,
     ChoiceReplyDTO,
+    CodeReplyDTO,
     CourseContentDTO,
     CoursePageDTO,
     CourseSectionDTO,
     CourseSummaryDTO,
     RemoteSubmissionDTO,
+    SqlReplyDTO,
     TaskDTO,
+    TextReplyDTO,
 )
 from stepik_autopilot.core.enums import ItemState
 from stepik_autopilot.core.exceptions import ExternalServiceError, UnsupportedTaskError, ValidationError
@@ -194,7 +197,7 @@ class StepikAttemptRepository:
         self._client = client
 
     async def prepare_attempt(self, task: TaskDTO) -> AttemptDTO:
-        if task.kind != "choice":
+        if task.kind not in {"choice", "string", "number", "sql", "code"}:
             msg = f"unsupported task {task.kind}"
             raise UnsupportedTaskError(msg)
         payload = await self._client.request("POST", "/api/attempts", json={"attempt": {"step": int(task.step_id)}})
@@ -208,16 +211,29 @@ class StepikAttemptRepository:
             msg = "Stepik attempt dataset is malformed"
             raise ExternalServiceError(msg)
         options_raw = dataset_raw.get("options")
-        if not isinstance(options_raw, list):
+        if task.kind == "choice" and not isinstance(options_raw, list):
             msg = "choice attempt has no confirmed options"
             raise UnsupportedTaskError(msg)
+        code_languages: tuple[str, ...] = ()
+        if task.kind == "code":
+            options = options_raw if isinstance(options_raw, Mapping) else {}
+            templates = options.get("code_templates")
+            if not isinstance(templates, Mapping) or not templates:
+                msg = "code attempt has no confirmed languages"
+                raise UnsupportedTaskError(msg)
+            code_languages = tuple(str(language) for language in templates)
         return AttemptDTO(
             id=str(attempt["id"]),
             step_id=task.step_id,
-            dataset=ChoiceDatasetDTO(
-                tuple(str(option) for option in options_raw), bool(dataset_raw.get("is_multiple_choice", False))
+            dataset=(
+                ChoiceDatasetDTO(
+                    tuple(str(option) for option in options_raw), bool(dataset_raw.get("is_multiple_choice", False))
+                )
+                if isinstance(options_raw, list)
+                else None
             ),
             expires_at=str(attempt["time_left"]) if attempt.get("time_left") is not None else None,
+            code_languages=code_languages,
         )
 
 
@@ -225,11 +241,22 @@ class StepikSubmissionRepository:
     def __init__(self, client: StepikApiClient) -> None:
         self._client = client
 
-    async def submit(self, attempt_id: str, reply: ChoiceReplyDTO) -> RemoteSubmissionDTO:
+    async def submit(
+        self, attempt_id: str, reply: ChoiceReplyDTO | TextReplyDTO | SqlReplyDTO | CodeReplyDTO
+    ) -> RemoteSubmissionDTO:
+        payload = (
+            {"choices": list(reply.choices)}
+            if isinstance(reply, ChoiceReplyDTO)
+            else {"text": reply.text}
+            if isinstance(reply, TextReplyDTO)
+            else {"solve_sql": reply.solve_sql}
+            if isinstance(reply, SqlReplyDTO)
+            else {"language": reply.language, "code": reply.code}
+        )
         payload = await self._client.request(
             "POST",
             "/api/submissions",
-            json={"submission": {"attempt": int(attempt_id), "reply": {"choices": list(reply.choices)}}},
+            json={"submission": {"attempt": int(attempt_id), "reply": payload}},
         )
         values = _objects(payload, "submissions")
         if not values:

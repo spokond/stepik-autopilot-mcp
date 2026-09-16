@@ -9,9 +9,25 @@ class ChoiceAnswerDTO:
 
 
 @dataclass(frozen=True, slots=True)
+class TextAnswerDTO:
+    value: str
+
+
+@dataclass(frozen=True, slots=True)
+class SqlAnswerDTO:
+    code: str
+
+
+@dataclass(frozen=True, slots=True)
+class CodeAnswerDTO:
+    language: str
+    code: str
+
+
+@dataclass(frozen=True, slots=True)
 class CommitAnswerDTO:
     item_id: str
-    answer: ChoiceAnswerDTO
+    answer: ChoiceAnswerDTO | TextAnswerDTO | SqlAnswerDTO | CodeAnswerDTO
 
 
 @dataclass(frozen=True, slots=True)
