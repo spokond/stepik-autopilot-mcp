@@ -81,31 +81,52 @@ class StepikCourseRepository:
                 continue
             section = sections[0]
             section_step_ids: list[str] = []
-            for unit_id in self._identifiers(section.get("units")):
-                units = _objects(await self._client.request("GET", f"/api/units/{unit_id}"), "units")
-                if not units:
+            units = await self._by_ids("/api/units", "units", self._identifiers(section.get("units")))
+            assignment_ids = tuple(
+                assignment_id for unit in units for assignment_id in self._identifiers(unit.get("assignments"))
+            )
+            assignments = await self._by_ids("/api/assignments", "assignments", assignment_ids)
+            selected_assignments = tuple(
+                assignment
+                for assignment in assignments
+                if assignment.get("id") is not None
+                and assignment.get("step") is not None
+                and (requested is None or str(assignment["step"]) in requested)
+            )
+            for assignment in selected_assignments:
+                step_id = str(assignment["step"])
+                section_step_ids.append(step_id)
+                resolved_steps.add(step_id)
+            steps = await self._by_ids(
+                "/api/steps", "steps", tuple(str(assignment["step"]) for assignment in selected_assignments)
+            )
+            progress_ids = tuple(
+                str(assignment["progress"])
+                for assignment in selected_assignments
+                if assignment.get("progress") is not None
+            )
+            progresses = await self._by_ids("/api/progresses", "progresses", progress_ids)
+            steps_by_id = {str(step["id"]): step for step in steps if step.get("id") is not None}
+            passed_by_progress: dict[str, bool] = {}
+            for progress in progresses:
+                progress_id = progress.get("id")
+                passed = progress.get("is_passed")
+                if progress_id is not None and isinstance(passed, bool):
+                    passed_by_progress[str(progress_id)] = passed
+            for assignment in selected_assignments:
+                step = steps_by_id.get(str(assignment["step"]))
+                if step is None:
                     continue
-                for assignment_id in self._identifiers(units[0].get("assignments")):
-                    assignments = _objects(
-                        await self._client.request("GET", f"/api/assignments/{assignment_id}"), "assignments"
+                progress_id = str(assignment["progress"]) if assignment.get("progress") is not None else None
+                tasks.append(
+                    self._task(
+                        step,
+                        course_id,
+                        str(assignment["id"]),
+                        progress_id,
+                        passed_by_progress.get(progress_id) if progress_id is not None else None,
                     )
-                    if not assignments or assignments[0].get("step") is None:
-                        continue
-                    assignment = assignments[0]
-                    step_id = str(assignment["step"])
-                    if requested is not None and step_id not in requested:
-                        continue
-                    section_step_ids.append(step_id)
-                    resolved_steps.add(step_id)
-                    step_values = await self._by_ids("/api/steps", "steps", (step_id,))
-                    if not step_values:
-                        continue
-                    progress_id = str(assignment["progress"]) if assignment.get("progress") is not None else None
-                    tasks.append(
-                        self._task(
-                            step_values[0], course_id, assignment_id, progress_id, await self._progress(progress_id)
-                        )
-                    )
+                )
             if requested_sections is not None or (requested is not None and section_step_ids):
                 selected_sections.append(
                     CourseSectionDTO(section_number, section_id, str(section.get("title", "")), tuple(section_step_ids))
@@ -128,12 +149,6 @@ class StepikCourseRepository:
             msg = f"course section numbers not found: {', '.join(map(str, missing))}"
             raise ValidationError(msg)
         return tuple(item for item in numbered if item[0] in requested)
-
-    async def _progress(self, progress_id: str | None) -> bool | None:
-        if progress_id is None:
-            return None
-        values = await self._by_ids("/api/progresses", "progresses", (progress_id,))
-        return bool(values[0]["is_passed"]) if values and isinstance(values[0].get("is_passed"), bool) else None
 
     async def _by_ids(self, path: str, key: str, identifiers: tuple[str, ...]) -> tuple[Mapping[str, object], ...]:
         values: list[Mapping[str, object]] = []

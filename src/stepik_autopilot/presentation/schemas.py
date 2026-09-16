@@ -323,9 +323,18 @@ class CourseListInput(StrictModel):
 
 class PlanInput(StrictModel):
     course_id: Identifier
-    selection: Selection = Selection.REMAINING
+    selection: Selection = Field(default=Selection.REMAINING, strict=False)
     explicit_step_ids: list[Identifier] | None = Field(default=None, min_length=1)
     section_numbers: list[Annotated[int, Field(ge=1)]] | None = Field(default=None, min_length=1)
+
+    @model_validator(mode="before")
+    @classmethod
+    def infer_selection(cls, value: object) -> object:
+        if not isinstance(value, dict) or value.get("selection") is not None:
+            return value
+        if value.get("explicit_step_ids") is not None or value.get("section_numbers") is not None:
+            return {**value, "selection": Selection.EXPLICIT}
+        return value
 
     @model_validator(mode="after")
     def validate_selection_scope(self) -> PlanInput:

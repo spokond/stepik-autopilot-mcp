@@ -41,12 +41,28 @@ class FakeStepikClient:
         params: list[tuple[str, str]] | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         del key
-        assert path == "/api/steps"
-        step_id = dict(params or [])["ids[]"]
-        yield {
-            "id": int(step_id),
-            "block": {"name": "choice", "text": f"Question {step_id}", "options": {"choices": ["A", "B"]}},
+        identifiers = tuple(value for name, value in params or [] if name == "ids[]")
+        responses = {
+            "/api/units": {"200": {"id": 200, "assignments": [2000, 2001]}},
+            "/api/assignments": {
+                "2000": {"id": 2000, "step": 501},
+                "2001": {"id": 2001, "step": 502},
+            },
+            "/api/steps": {
+                identifier: {
+                    "id": int(identifier),
+                    "block": {
+                        "name": "choice",
+                        "text": f"Question {identifier}",
+                        "options": {"choices": ["A", "B"]},
+                    },
+                }
+                for identifier in identifiers
+            },
+            "/api/progresses": {},
         }
+        for identifier in identifiers:
+            yield responses[path][identifier]
 
 
 @pytest.mark.anyio

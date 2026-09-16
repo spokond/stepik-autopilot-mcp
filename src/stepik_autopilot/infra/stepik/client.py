@@ -1,6 +1,7 @@
 import asyncio
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from email.utils import parsedate_to_datetime
+from http import HTTPStatus
 from time import monotonic, time
 from typing import TYPE_CHECKING, Any
 
@@ -13,6 +14,22 @@ HTTP_ERROR = 400
 HTTP_TOO_MANY_REQUESTS = 429
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, AsyncIterator
+
+
+def response_error_message(prefix: str, status: int, payload: object) -> str:
+    details = [f"HTTP {status}"]
+    with suppress(ValueError):
+        details.append(HTTPStatus(status).phrase)
+    if isinstance(payload, dict):
+        error = payload.get("error")
+        if isinstance(error, str) and error.replace("_", "").replace("-", "").isalnum():
+            details.append(f"error={error}")
+    return f"{prefix} ({'; '.join(details)})"
+
+
+def _network_error_message(prefix: str, error: aiohttp.ClientError) -> str:
+    detail = " ".join(str(error).split())
+    return f"{prefix} ({type(error).__name__}: {detail})" if detail else f"{prefix} ({type(error).__name__})"
 
 
 class StepikTokenProvider:
@@ -30,21 +47,26 @@ class StepikTokenProvider:
                 return self._access_token
             base_url = str(self._settings.stepik.base_url).rstrip("/")
             url = f"{base_url}/oauth2/token/"
-            auth = aiohttp.BasicAuth(
-                self._settings.stepik.oauth.client_id,
-                self._settings.stepik.oauth.client_secret.get_secret_value(),
-            )
+            headers = {
+                "Authorization": aiohttp.encode_basic_auth(
+                    self._settings.stepik.oauth.client_id,
+                    self._settings.stepik.oauth.client_secret.get_secret_value(),
+                )
+            }
             try:
                 async with self._limiter.request_slot():
                     async with self._session.post(
-                        url, data={"grant_type": "client_credentials"}, auth=auth
+                        url, data={"grant_type": "client_credentials"}, headers=headers
                     ) as response:
-                        payload = await response.json(content_type=None)
-                        if response.status >= HTTP_ERROR or not isinstance(payload.get("access_token"), str):
-                            msg = "Stepik OAuth token request failed"
+                        payload: object = await response.json(content_type=None)
+                        if response.status >= HTTP_ERROR:
+                            msg = response_error_message("Stepik OAuth token request failed", response.status, payload)
+                            raise ExternalServiceError(msg)
+                        if not isinstance(payload, dict) or not isinstance(payload.get("access_token"), str):
+                            msg = "Stepik OAuth token response is malformed (access_token is missing)"
                             raise ExternalServiceError(msg)
             except aiohttp.ClientError as error:
-                msg = "Stepik OAuth token request failed"
+                msg = _network_error_message("Stepik OAuth token request failed", error)
                 raise ExternalServiceError(msg) from error
             access_token = payload["access_token"]
             if not isinstance(access_token, str):
@@ -126,15 +148,15 @@ class StepikApiClient:
         try:
             async with self._limiter.request_slot():
                 async with self._session.request(method, url, headers=headers, params=params, json=json) as response:
-                    payload = await response.json(content_type=None)
+                    payload: object = await response.json(content_type=None)
                     if response.status == HTTP_TOO_MANY_REQUESTS:
                         await self._limiter.block(response.headers.get("Retry-After"))
                     if response.status >= HTTP_ERROR or not isinstance(payload, dict):
-                        msg = f"Stepik API request failed ({response.status})"
+                        msg = response_error_message("Stepik API request failed", response.status, payload)
                         raise ExternalServiceError(msg)
                     return payload
         except aiohttp.ClientError as error:
-            msg = "Stepik API request failed"
+            msg = _network_error_message("Stepik API request failed", error)
             raise ExternalServiceError(msg) from error
 
     async def paged(
