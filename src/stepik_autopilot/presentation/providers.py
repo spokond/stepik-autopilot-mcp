@@ -59,7 +59,12 @@ class ApplicationProvider(Provider):
 
     @provide(scope=Scope.APP)
     async def create_http_session(self) -> AsyncIterator[aiohttp.ClientSession]:
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as session:
+        # aiohttp[speedups] installs aiodns, whose resolver may not be able to
+        # reach the system-configured DNS servers.  curl uses the system
+        # resolver, so use aiohttp's threaded equivalent for the same network
+        # behaviour.
+        connector = aiohttp.TCPConnector(resolver=aiohttp.ThreadedResolver())
+        async with aiohttp.ClientSession(connector=connector, timeout=aiohttp.ClientTimeout(total=20)) as session:
             yield session
 
     @provide(scope=Scope.APP)
