@@ -44,7 +44,9 @@ def build_mcp(settings: Settings) -> MCPServer:
     mcp: MCPServer = MCPServer(name="stepik-autopilot", title="Stepik Autopilot", version="0.1.0", lifespan=lifespan)
     mcp.add_tool(bind_handler(stepik_courses, container), name="stepik_courses", description="List accessible courses.")
     mcp.add_tool(
-        bind_handler(stepik_plan, container), name="stepik_plan", description="Inspect a course without attempts."
+        bind_handler(stepik_plan, container),
+        name="stepik_plan",
+        description="Inspect a course without attempts. section_numbers or explicit_step_ids select explicit scope.",
     )
     mcp.add_tool(bind_handler(stepik_run_start, container), name="stepik_run_start", description="Start a durable run.")
     mcp.add_tool(bind_handler(stepik_run_next, container), name="stepik_run_next", description="Lease the next batch.")

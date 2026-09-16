@@ -30,6 +30,21 @@ def _objects(payload: Mapping[str, object], key: str) -> tuple[Mapping[str, obje
     return tuple(value for value in raw if isinstance(value, Mapping))
 
 
+def _attempt_dataset(raw: object) -> Mapping[str, object]:
+    """Return Stepik's inline dataset, decoding its serialized JSON form."""
+    if isinstance(raw, Mapping):
+        return raw
+    if isinstance(raw, str):
+        try:
+            decoded = json.loads(raw)
+        except json.JSONDecodeError:
+            decoded = None
+        if isinstance(decoded, Mapping):
+            return decoded
+    msg = "Stepik attempt dataset is malformed"
+    raise ExternalServiceError(msg)
+
+
 class StepikAccountRepository:
     def __init__(self, client: StepikApiClient) -> None:
         self._client = client
@@ -206,10 +221,7 @@ class StepikAttemptRepository:
             msg = "Stepik attempt response is malformed"
             raise ExternalServiceError(msg)
         attempt = values[0]
-        dataset_raw = attempt.get("dataset")
-        if not isinstance(dataset_raw, Mapping):
-            msg = "Stepik attempt dataset is malformed"
-            raise ExternalServiceError(msg)
+        dataset_raw = _attempt_dataset(attempt.get("dataset"))
         options_raw = dataset_raw.get("options")
         if task.kind == "choice" and not isinstance(options_raw, list):
             msg = "choice attempt has no confirmed options"

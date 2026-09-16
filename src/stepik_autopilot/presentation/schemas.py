@@ -354,10 +354,31 @@ class CourseListInput(StrictModel):
 
 
 class PlanInput(StrictModel):
-    course_id: Identifier
-    selection: Selection = Field(default=Selection.REMAINING, strict=False)
-    explicit_step_ids: list[Identifier] | None = Field(default=None, min_length=1)
-    section_numbers: list[Annotated[int, Field(ge=1)]] | None = Field(default=None, min_length=1)
+    course_id: Identifier = Field(description="Stepik course identifier.")
+    selection: Selection = Field(
+        default=Selection.REMAINING,
+        strict=False,
+        description=(
+            "Task scope: remaining or failed for the whole course; explicit for supplied section_numbers "
+            "or explicit_step_ids. Omit this field when supplying either explicit scope: explicit is inferred."
+        ),
+    )
+    explicit_step_ids: list[Identifier] | None = Field(
+        default=None,
+        min_length=1,
+        description=(
+            "Exact Stepik step IDs. Mutually exclusive with section_numbers; "
+            "requires selection=explicit if selection is set."
+        ),
+    )
+    section_numbers: list[Annotated[int, Field(ge=1)]] | None = Field(
+        default=None,
+        min_length=1,
+        description=(
+            "One-based section numbers from the course outline. Mutually exclusive with explicit_step_ids; "
+            "requires selection=explicit if selection is set."
+        ),
+    )
 
     @model_validator(mode="before")
     @classmethod

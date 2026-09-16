@@ -4,9 +4,10 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
-from stepik_autopilot.core.exceptions import ValidationError
+from stepik_autopilot.application.dto import TaskDTO
+from stepik_autopilot.core.exceptions import ExternalServiceError, ValidationError
 from stepik_autopilot.infra.stepik.client import StepikApiClient
-from stepik_autopilot.infra.stepik.resources import StepikCourseRepository
+from stepik_autopilot.infra.stepik.resources import StepikAttemptRepository, StepikCourseRepository
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -91,3 +92,47 @@ async def test_content_rejects_section_number_outside_course_outline() -> None:
         await repository.content("42", section_numbers=(4,))
 
     assert client.requests == ["/api/courses/42"]
+
+
+class AttemptClient:
+    def __init__(self, dataset: object) -> None:
+        self._dataset = dataset
+
+    async def request(
+        self,
+        method: str,
+        path: str,
+        params: list[tuple[str, str]] | None = None,
+        json: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        assert method == "POST"
+        assert path == "/api/attempts"
+        assert params is None
+        assert json == {"attempt": {"step": 501}}
+        return {"attempts": [{"id": 42, "dataset": self._dataset}]}
+
+
+def choice_task() -> TaskDTO:
+    return TaskDTO("501", "2000", "42", "choice", "Question", None, False, False)
+
+
+@pytest.mark.anyio
+async def test_prepare_attempt_decodes_serialized_choice_dataset() -> None:
+    client = AttemptClient('{"options": ["A", "B"], "is_multiple_choice": false}')
+    repository = StepikAttemptRepository(cast("StepikApiClient", cast("object", client)))
+
+    attempt = await repository.prepare_attempt(choice_task())
+
+    assert attempt.id == "42"
+    assert attempt.dataset is not None
+    assert attempt.dataset.options == ("A", "B")
+    assert attempt.dataset.is_multiple_choice is False
+
+
+@pytest.mark.anyio
+async def test_prepare_attempt_rejects_non_object_serialized_dataset() -> None:
+    client = AttemptClient('["A", "B"]')
+    repository = StepikAttemptRepository(cast("StepikApiClient", cast("object", client)))
+
+    with pytest.raises(ExternalServiceError, match="Stepik attempt dataset is malformed"):
+        await repository.prepare_attempt(choice_task())

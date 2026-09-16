@@ -25,6 +25,12 @@ def test_selection_defaults_to_remaining_without_explicit_scope() -> None:
     assert value.selection is Selection.REMAINING
 
 
+def test_selection_schema_documents_inferred_explicit_scope() -> None:
+    schema = PlanInput.model_json_schema()
+
+    assert "Omit this field when supplying either explicit scope" in schema["properties"]["selection"]["description"]
+
+
 @pytest.mark.parametrize(
     "values",
     [
