@@ -8,6 +8,7 @@ from stepik_autopilot.application.dto import (
     BatchDTO,
     ChoiceReplyDTO,
     ChoiceTaskDTO,
+    CodeReplyDTO,
     CollectResultsInputDTO,
     CommitBatchInputDTO,
     ItemDTO,
@@ -25,11 +26,13 @@ from stepik_autopilot.application.dto import (
     RunStartedDTO,
     RunStatusDTO,
     RunStatusInputDTO,
+    SqlReplyDTO,
     StartRunInputDTO,
     SubmissionDTO,
     SubmissionReceiptDTO,
     TaskDTO,
     TaskTypeCountDTO,
+    TextReplyDTO,
 )
 from stepik_autopilot.application.protocols import (
     BatchRepository,
@@ -57,7 +60,6 @@ from stepik_autopilot.core.exceptions import (
     ExternalServiceError,
     NotFoundError,
     RunStateError,
-    UnsupportedTaskError,
     ValidationError,
 )
 from stepik_autopilot.core.task_adapters import AdapterRegistry
@@ -67,8 +69,16 @@ def hash_text(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
 
 
-def hash_reply(reply: ChoiceReplyDTO) -> str:
-    payload = {"choices": list(reply.choices)}
+def hash_reply(reply: ChoiceReplyDTO | TextReplyDTO | SqlReplyDTO | CodeReplyDTO) -> str:
+    payload = (
+        {"choices": list(reply.choices)}
+        if isinstance(reply, ChoiceReplyDTO)
+        else {"text": reply.text}
+        if isinstance(reply, TextReplyDTO)
+        else {"solve_sql": reply.solve_sql}
+        if isinstance(reply, SqlReplyDTO)
+        else {"language": reply.language, "code": reply.code}
+    )
     return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
@@ -91,10 +101,12 @@ class PlanCourse:
         unknown = sum(not self._adapters.is_theory(task.kind) and task.is_passed is None for task in tasks)
         passed = sum(not self._adapters.is_theory(task.kind) and task.is_passed is True for task in tasks)
         unsupported = sum(
-            not self._adapters.is_theory(task.kind) and task.is_passed is False and task.kind != "choice"
+            not self._adapters.is_theory(task.kind)
+            and task.is_passed is False
+            and not self._adapters.is_supported(task.kind)
             for task in tasks
         )
-        available = sum(task.kind == "choice" and task.is_passed is False for task in tasks)
+        available = sum(self._adapters.is_supported(task.kind) and task.is_passed is False for task in tasks)
         return PlanDTO(
             input.course_id,
             input.selection,
@@ -165,7 +177,7 @@ class StartRun:
         eligible = tuple(
             task
             for task in tasks
-            if task.kind == "choice"
+            if self._adapters.is_supported(task.kind)
             and task.is_passed is False
             and (input.selection is not Selection.FAILED or task.failed)
         )
@@ -193,9 +205,6 @@ class StartRun:
         await self._batches.create_batch(run.id, batch_id)
         output: list[ChoiceTaskDTO] = []
         for item in chosen:
-            if item.kind != "choice":
-                msg = f"unsupported task {item.kind}"
-                raise UnsupportedTaskError(msg)
             attempt = await self._attempts.prepare_attempt(
                 TaskDTO(item.step_id, item.assignment_id, run.course_id, item.kind, item.question, None, False, False)
             )
@@ -203,6 +212,7 @@ class StartRun:
                 item,
                 state=ItemState.LEASED,
                 choice_dataset=attempt.dataset,
+                code_languages=attempt.code_languages,
                 attempt_id=attempt.id,
                 expires_at=attempt.expires_at,
                 batch_id=batch_id,
@@ -214,9 +224,11 @@ class StartRun:
                     item.step_id,
                     attempt.id,
                     item.question,
-                    attempt.dataset.options,
-                    attempt.dataset.is_multiple_choice,
+                    attempt.dataset.options if attempt.dataset else (),
+                    attempt.dataset.is_multiple_choice if attempt.dataset else False,
                     attempt.expires_at,
+                    item.kind,
+                    attempt.code_languages,
                 )
             )
         return BatchDTO(batch_id, tuple(output), len(ready) > len(chosen))
@@ -272,6 +284,8 @@ class NextBatch:
                         item.choice_dataset.options if item.choice_dataset else (),
                         item.choice_dataset.is_multiple_choice if item.choice_dataset else False,
                         item.expires_at,
+                        item.kind,
+                        item.code_languages,
                     )
                     for item in leased
                 )
@@ -306,9 +320,6 @@ class NextBatch:
         await self._batches.create_batch(run.id, batch_id)
         output: list[ChoiceTaskDTO] = []
         for item in chosen:
-            if item.kind != "choice":
-                msg = f"unsupported task {item.kind}"
-                raise UnsupportedTaskError(msg)
             task = TaskDTO(
                 step_id=item.step_id,
                 assignment_id=item.assignment_id,
@@ -324,6 +335,7 @@ class NextBatch:
                 item,
                 state=ItemState.LEASED,
                 choice_dataset=attempt.dataset,
+                code_languages=attempt.code_languages,
                 attempt_id=attempt.id,
                 expires_at=attempt.expires_at,
                 batch_id=batch_id,
@@ -335,9 +347,11 @@ class NextBatch:
                     item.step_id,
                     attempt.id,
                     item.question,
-                    attempt.dataset.options,
-                    attempt.dataset.is_multiple_choice,
+                    attempt.dataset.options if attempt.dataset else (),
+                    attempt.dataset.is_multiple_choice if attempt.dataset else False,
                     attempt.expires_at,
+                    item.kind,
+                    attempt.code_languages,
                 )
             )
         return BatchDTO(batch_id, tuple(output), len(ready) > len(chosen))
@@ -395,10 +409,7 @@ class CommitBatch:
         receipts: list[SubmissionReceiptDTO] = []
         for answer in input.answers:
             item = available[answer.item_id]
-            if item.choice_dataset is None:
-                msg = "item is not a prepared choice task"
-                raise UnsupportedTaskError(msg)
-            reply = self._adapters.choice(item.kind).build_reply(answer.answer, item.choice_dataset)
+            reply = self._adapters.build_reply(item.kind, answer.answer, item.choice_dataset, item.code_languages)
             if input.action == "save":
                 saved = replace(item, state=ItemState.DRAFT, draft_revision=item.draft_revision + 1)
                 await self._items.save_item(account, saved)

@@ -180,6 +180,8 @@ class IdempotencyRepository(SQLAlchemyRepository):
         if not isinstance(options, list):
             msg = "stored batch task options are malformed"
             raise ConflictError(msg)
+        languages = raw.get("code_languages")
+        code_languages = tuple(str(language) for language in languages) if isinstance(languages, list) else ()
         return ChoiceTaskDTO(
             str(raw["item_id"]),
             str(raw["step_id"]),
@@ -188,6 +190,8 @@ class IdempotencyRepository(SQLAlchemyRepository):
             tuple(str(option) for option in options),
             bool(raw["is_multiple_choice"]),
             str(raw["expires_at"]) if raw["expires_at"] is not None else None,
+            str(raw.get("kind", "choice")),
+            code_languages,
         )
 
     @staticmethod
@@ -200,6 +204,8 @@ class IdempotencyRepository(SQLAlchemyRepository):
             "options": list(value.options),
             "is_multiple_choice": value.is_multiple_choice,
             "expires_at": value.expires_at,
+            "kind": value.kind,
+            "code_languages": list(value.code_languages),
         }
 
     @staticmethod

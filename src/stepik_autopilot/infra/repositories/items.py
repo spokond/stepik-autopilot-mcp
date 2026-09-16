@@ -75,6 +75,7 @@ class ItemRepository(SQLAlchemyRepository):
                 "question": item.question,
                 "options": list(dataset.options) if dataset else [],
                 "is_multiple_choice": dataset.is_multiple_choice if dataset else False,
+                "code_languages": list(item.code_languages),
                 "expires_at": item.expires_at,
             },
             "batch_id": item.batch_id,
@@ -99,6 +100,8 @@ class ItemRepository(SQLAlchemyRepository):
                 options=tuple(str(option) for option in options),
                 is_multiple_choice=bool(payload["is_multiple_choice"]),
             )
+        languages = payload.get("code_languages")
+        code_languages = tuple(str(language) for language in languages) if isinstance(languages, list) else ()
         return ItemDTO(
             id=str(row["id"]),
             run_id=str(row["run_id"]),
@@ -108,6 +111,7 @@ class ItemRepository(SQLAlchemyRepository):
             question=str(payload["question"]),
             state=ItemState(str(row["state"])),
             choice_dataset=dataset,
+            code_languages=code_languages,
             attempt_id=str(attempt_id) if attempt_id is not None else None,
             expires_at=str(payload["expires_at"]) if payload["expires_at"] is not None else None,
             batch_id=str(row["batch_id"]) if row["batch_id"] is not None else None,

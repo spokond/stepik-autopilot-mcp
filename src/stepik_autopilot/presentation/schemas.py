@@ -6,6 +6,7 @@ from stepik_autopilot.application.dto import (
     BatchCommitDTO,
     BatchDTO,
     ChoiceAnswerDTO,
+    CodeAnswerDTO,
     CommitAnswerDTO,
     CoursePageDTO,
     CourseSectionDTO,
@@ -18,9 +19,11 @@ from stepik_autopilot.application.dto import (
     RunResourceDTO,
     RunStartedDTO,
     RunStatusDTO,
+    SqlAnswerDTO,
     SubmissionReceiptDTO,
     SubmissionResourceDTO,
     TaskTypeCountDTO,
+    TextAnswerDTO,
 )
 from stepik_autopilot.core.enums import Grading, RunMode, Selection, Strategy, Target
 
@@ -117,6 +120,8 @@ class ChoiceBatchItemOutput(StrictModel):
     options: list[str] = Field(description="Choice options in attempt order.")
     is_multiple_choice: bool = Field(description="Whether multiple options may be selected.")
     expires_at: str | None = Field(description="Attempt expiration timestamp.")
+    kind: str = Field(description="Stepik block kind.")
+    code_languages: list[str] = Field(description="Languages accepted by a code attempt.")
 
 
 class BatchOutput(StrictModel):
@@ -138,6 +143,8 @@ class BatchOutput(StrictModel):
                     options=list(x.options),
                     is_multiple_choice=x.is_multiple_choice,
                     expires_at=x.expires_at,
+                    kind=x.kind,
+                    code_languages=list(x.code_languages),
                 )
                 for x in value.items
             ],
@@ -306,9 +313,34 @@ class ChoiceAnswerInput(StrictModel):
         return ChoiceAnswerDTO(tuple(self.selected_indexes))
 
 
+class TextAnswerInput(StrictModel):
+    kind: Literal["string", "number"]
+    value: str = Field(min_length=1)
+
+    def to_dto(self) -> TextAnswerDTO:
+        return TextAnswerDTO(self.value)
+
+
+class CodeAnswerInput(StrictModel):
+    kind: Literal["code"]
+    language: str = Field(min_length=1)
+    code: str = Field(min_length=1)
+
+    def to_dto(self) -> CodeAnswerDTO:
+        return CodeAnswerDTO(self.language, self.code)
+
+
+class SqlAnswerInput(StrictModel):
+    kind: Literal["sql"]
+    code: str = Field(min_length=1)
+
+    def to_dto(self) -> SqlAnswerDTO:
+        return SqlAnswerDTO(self.code)
+
+
 class CommitAnswerInput(StrictModel):
     item_id: Identifier
-    answer: ChoiceAnswerInput
+    answer: ChoiceAnswerInput | TextAnswerInput | SqlAnswerInput | CodeAnswerInput
 
     def to_dto(self) -> CommitAnswerDTO:
         return CommitAnswerDTO(self.item_id, self.answer.to_dto())
@@ -357,10 +389,12 @@ class PlanInput(StrictModel):
 
 class RunStartInput(PlanInput):
     request_id: RequestId
-    mode: RunMode = RunMode.AUTOPILOT
-    strategy: Strategy = Strategy.BALANCED
-    target: Target = Target.TASKS_COMPLETE
-    grading: Grading = Grading.DEFERRED
+    # MCP arguments arrive as JSON primitives.  Keep the model strict for all
+    # other fields, but allow Pydantic to parse the documented enum strings.
+    mode: RunMode = Field(default=RunMode.AUTOPILOT, strict=False)
+    strategy: Strategy = Field(default=Strategy.BALANCED, strict=False)
+    target: Target = Field(default=Target.TASKS_COMPLETE, strict=False)
+    grading: Grading = Field(default=Grading.DEFERRED, strict=False)
 
 
 class RunIdInput(StrictModel):

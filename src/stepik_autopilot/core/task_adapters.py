@@ -1,4 +1,14 @@
-from stepik_autopilot.application.dto import ChoiceAnswerDTO, ChoiceDatasetDTO, ChoiceReplyDTO
+from stepik_autopilot.application.dto import (
+    ChoiceAnswerDTO,
+    ChoiceDatasetDTO,
+    ChoiceReplyDTO,
+    CodeAnswerDTO,
+    CodeReplyDTO,
+    SqlAnswerDTO,
+    SqlReplyDTO,
+    TextAnswerDTO,
+    TextReplyDTO,
+)
 from stepik_autopilot.core.exceptions import UnsupportedTaskError, ValidationError
 
 
@@ -22,11 +32,30 @@ class AdapterRegistry:
     def __init__(self) -> None:
         self._choice = ChoiceAdapter()
 
-    def choice(self, kind: str) -> ChoiceAdapter:
-        if kind != "choice":
-            msg = f"Stepik block type {kind!r} is not a confirmed choice task"
-            raise UnsupportedTaskError(msg)
-        return self._choice
+    def build_reply(
+        self,
+        kind: str,
+        answer: ChoiceAnswerDTO | TextAnswerDTO | SqlAnswerDTO | CodeAnswerDTO,
+        dataset: ChoiceDatasetDTO | None,
+        code_languages: tuple[str, ...],
+    ) -> ChoiceReplyDTO | TextReplyDTO | SqlReplyDTO | CodeReplyDTO:
+        if kind == "choice" and isinstance(answer, ChoiceAnswerDTO) and dataset is not None:
+            return self._choice.build_reply(answer, dataset)
+        if kind in {"string", "number"} and isinstance(answer, TextAnswerDTO):
+            return TextReplyDTO(answer.value)
+        if kind == "sql" and isinstance(answer, SqlAnswerDTO):
+            return SqlReplyDTO(answer.code)
+        if kind == "code" and isinstance(answer, CodeAnswerDTO):
+            if answer.language not in code_languages:
+                msg = "code language does not belong to this attempt"
+                raise ValidationError(msg)
+            return CodeReplyDTO(answer.language, answer.code)
+        msg = f"answer kind does not match Stepik block type {kind!r}"
+        raise UnsupportedTaskError(msg)
+
+    @staticmethod
+    def is_supported(kind: str) -> bool:
+        return kind in {"choice", "string", "number", "sql", "code"}
 
     @staticmethod
     def is_theory(kind: str) -> bool:
