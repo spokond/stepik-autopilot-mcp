@@ -21,6 +21,7 @@ from stepik_autopilot.application.use_cases.run import (
     CollectResults,
     CommitBatch,
     ControlRun,
+    ListTheory,
     NextBatch,
     PlanCourse,
     RunStatus,
@@ -93,6 +94,7 @@ provider.provide(StepikCourseRepository, scope=Scope.REQUEST, provides=StepikCou
 provider.provide(StepikAttemptRepository, scope=Scope.REQUEST, provides=StepikAttemptGateway)
 provider.provide(StepikSubmissionRepository, scope=Scope.REQUEST, provides=StepikSubmissionGateway)
 provider.provide(PlanCourse, scope=Scope.REQUEST)
+provider.provide(ListTheory, scope=Scope.REQUEST)
 provider.provide(StartRun, scope=Scope.REQUEST)
 provider.provide(NextBatch, scope=Scope.REQUEST)
 provider.provide(CommitBatch, scope=Scope.REQUEST)

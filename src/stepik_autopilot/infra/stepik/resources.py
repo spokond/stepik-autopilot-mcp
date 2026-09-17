@@ -87,71 +87,93 @@ class StepikCourseRepository:
         if not course:
             msg = "Stepik course response is malformed"
             raise ExternalServiceError(msg)
-        tasks: list[TaskDTO] = []
-        selected_sections: list[CourseSectionDTO] = []
-        resolved_steps: set[str] = set()
         course_section_ids = self._identifiers(course[0].get("sections"))
-        for section_number, section_id in self._selected_sections(course_section_ids, requested_sections):
-            sections = _objects(await self._client.request("GET", f"/api/sections/{section_id}"), "sections")
-            if not sections:
-                continue
-            section = sections[0]
-            section_step_ids: list[str] = []
-            units = await self._by_ids("/api/units", "units", self._identifiers(section.get("units")))
-            assignment_ids = tuple(
-                assignment_id for unit in units for assignment_id in self._identifiers(unit.get("assignments"))
+        requested_section_entries = self._selected_sections(course_section_ids, requested_sections)
+        sections = await self._by_ids(
+            "/api/sections", "sections", tuple(section_id for _, section_id in requested_section_entries)
+        )
+        sections_by_id = {str(section["id"]): section for section in sections if section.get("id") is not None}
+        section_entries = tuple(
+            (number, section_id, sections_by_id[section_id])
+            for number, section_id in requested_section_entries
+            if section_id in sections_by_id
+        )
+
+        unit_ids = tuple(
+            unit_id for _, _, section in section_entries for unit_id in self._identifiers(section.get("units"))
+        )
+        units = await self._by_ids("/api/units", "units", unit_ids)
+        units_by_id = {str(unit["id"]): unit for unit in units if unit.get("id") is not None}
+        assignment_ids = tuple(
+            assignment_id
+            for _, _, section in section_entries
+            for unit_id in self._identifiers(section.get("units"))
+            for assignment_id in self._identifiers(units_by_id.get(unit_id, {}).get("assignments"))
+        )
+        assignments = await self._by_ids("/api/assignments", "assignments", assignment_ids)
+        assignments_by_id = {
+            str(assignment["id"]): assignment for assignment in assignments if assignment.get("id") is not None
+        }
+        assignments_by_section = tuple(
+            (
+                number,
+                section_id,
+                section,
+                tuple(
+                    assignment
+                    for unit_id in self._identifiers(section.get("units"))
+                    for assignment_id in self._identifiers(units_by_id.get(unit_id, {}).get("assignments"))
+                    if (assignment := assignments_by_id.get(assignment_id)) is not None
+                    and assignment.get("step") is not None
+                    and (requested is None or str(assignment["step"]) in requested)
+                ),
             )
-            assignments = await self._by_ids("/api/assignments", "assignments", assignment_ids)
-            selected_assignments = tuple(
-                assignment
-                for assignment in assignments
-                if assignment.get("id") is not None
-                and assignment.get("step") is not None
-                and (requested is None or str(assignment["step"]) in requested)
+            for number, section_id, section in section_entries
+        )
+        selected_assignments = tuple(
+            assignment for _, _, _, section_assignments in assignments_by_section for assignment in section_assignments
+        )
+        resolved_steps = {str(assignment["step"]) for assignment in selected_assignments}
+        steps = await self._by_ids(
+            "/api/steps", "steps", tuple(str(assignment["step"]) for assignment in selected_assignments)
+        )
+        progress_ids = tuple(
+            str(assignment["progress"]) for assignment in selected_assignments if assignment.get("progress") is not None
+        )
+        progresses = await self._by_ids("/api/progresses", "progresses", progress_ids)
+        steps_by_id = {str(step["id"]): step for step in steps if step.get("id") is not None}
+        passed_by_progress: dict[str, bool] = {}
+        for progress in progresses:
+            progress_id = progress.get("id")
+            passed = progress.get("is_passed")
+            if progress_id is not None and isinstance(passed, bool):
+                passed_by_progress[str(progress_id)] = passed
+        tasks = tuple(
+            self._task(
+                steps_by_id[str(assignment["step"])],
+                course_id,
+                str(assignment["id"]),
+                progress_id,
+                passed_by_progress.get(progress_id) if progress_id is not None else None,
             )
-            for assignment in selected_assignments:
-                step_id = str(assignment["step"])
-                section_step_ids.append(step_id)
-                resolved_steps.add(step_id)
-            steps = await self._by_ids(
-                "/api/steps", "steps", tuple(str(assignment["step"]) for assignment in selected_assignments)
+            for assignment in selected_assignments
+            if str(assignment["step"]) in steps_by_id
+            for progress_id in (str(assignment["progress"]) if assignment.get("progress") is not None else None,)
+        )
+        selected_sections = tuple(
+            CourseSectionDTO(
+                number,
+                section_id,
+                str(section.get("title", "")),
+                tuple(str(assignment["step"]) for assignment in section_assignments),
             )
-            progress_ids = tuple(
-                str(assignment["progress"])
-                for assignment in selected_assignments
-                if assignment.get("progress") is not None
-            )
-            progresses = await self._by_ids("/api/progresses", "progresses", progress_ids)
-            steps_by_id = {str(step["id"]): step for step in steps if step.get("id") is not None}
-            passed_by_progress: dict[str, bool] = {}
-            for progress in progresses:
-                progress_id = progress.get("id")
-                passed = progress.get("is_passed")
-                if progress_id is not None and isinstance(passed, bool):
-                    passed_by_progress[str(progress_id)] = passed
-            for assignment in selected_assignments:
-                step = steps_by_id.get(str(assignment["step"]))
-                if step is None:
-                    continue
-                progress_id = str(assignment["progress"]) if assignment.get("progress") is not None else None
-                tasks.append(
-                    self._task(
-                        step,
-                        course_id,
-                        str(assignment["id"]),
-                        progress_id,
-                        passed_by_progress.get(progress_id) if progress_id is not None else None,
-                    )
-                )
-            if requested_sections is not None or (requested is not None and section_step_ids):
-                selected_sections.append(
-                    CourseSectionDTO(section_number, section_id, str(section.get("title", "")), tuple(section_step_ids))
-                )
+            for number, section_id, section, section_assignments in assignments_by_section
+        )
         if requested is not None and (missing_steps := requested.difference(resolved_steps)):
             missing = sorted(missing_steps)
             msg = f"course step ids not found: {', '.join(missing)}"
             raise ValidationError(msg)
-        return CourseContentDTO(tuple(tasks), tuple(selected_sections))
+        return CourseContentDTO(tasks, selected_sections)
 
     async def code_templates(self, step_ids: tuple[str, ...]) -> dict[str, dict[str, str]]:
         steps = await self._by_ids("/api/steps", "steps", tuple(dict.fromkeys(step_ids)))
@@ -181,6 +203,8 @@ class StepikCourseRepository:
         return tuple(item for item in numbered if item[0] in requested)
 
     async def _by_ids(self, path: str, key: str, identifiers: tuple[str, ...]) -> tuple[Mapping[str, object], ...]:
+        if not identifiers:
+            return ()
         values: list[Mapping[str, object]] = []
         for offset in range(0, len(identifiers), 30):
             params = [("ids[]", identifier) for identifier in identifiers[offset : offset + 30]]

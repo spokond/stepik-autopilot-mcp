@@ -19,6 +19,7 @@ from stepik_autopilot.application.use_cases.run import (
     CollectResults,
     CommitBatch,
     ControlRun,
+    ListTheory,
     NextBatch,
     PlanCourse,
     RunStatus,
@@ -49,6 +50,7 @@ from stepik_autopilot.presentation.schemas import (
     RunStatusInput,
     RunStatusOutput,
     SubmissionResourceOutput,
+    TheoryCatalogOutput,
 )
 
 
@@ -79,6 +81,22 @@ async def stepik_plan(container: AsyncContainer, arguments: PlanInput) -> PlanOu
                 )
             )
             return PlanOutput.from_dto(value)
+    except StepikAutopilotError as error:
+        return error_output(error)
+
+
+async def stepik_theory(container: AsyncContainer, arguments: PlanInput) -> TheoryCatalogOutput | ErrorOutput:
+    try:
+        async with container(scope=Scope.REQUEST) as request_container:
+            value = await (await request_container.get(ListTheory)).execute(
+                PlanInputDTO(
+                    arguments.course_id,
+                    arguments.selection,
+                    tuple(arguments.explicit_step_ids) if arguments.explicit_step_ids else None,
+                    tuple(arguments.section_numbers) if arguments.section_numbers else None,
+                )
+            )
+            return TheoryCatalogOutput.from_dto(value)
     except StepikAutopilotError as error:
         return error_output(error)
 

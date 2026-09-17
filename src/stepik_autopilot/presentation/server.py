@@ -23,6 +23,7 @@ from stepik_autopilot.presentation.tools import (
     stepik_run_next,
     stepik_run_start,
     stepik_run_status,
+    stepik_theory,
 )
 from stepik_autopilot.settings import Settings
 
@@ -47,6 +48,11 @@ def build_mcp(settings: Settings) -> MCPServer:
         bind_handler(stepik_plan, container),
         name="stepik_plan",
         description="Inspect a course without attempts. section_numbers or explicit_step_ids select explicit scope.",
+    )
+    mcp.add_tool(
+        bind_handler(stepik_theory, container),
+        name="stepik_theory",
+        description="List text lectures and their source HTML without attempts or submissions.",
     )
     mcp.add_tool(bind_handler(stepik_run_start, container), name="stepik_run_start", description="Start a durable run.")
     mcp.add_tool(bind_handler(stepik_run_next, container), name="stepik_run_next", description="Lease the next batch.")

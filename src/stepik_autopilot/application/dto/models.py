@@ -229,6 +229,22 @@ class PlanDTO:
 
 
 @dataclass(frozen=True, slots=True)
+class TheoryStepDTO:
+    section_number: int | None
+    section_title: str | None
+    step_id: str
+    assignment_id: str
+    content: str
+    progress_is_passed: bool | None
+
+
+@dataclass(frozen=True, slots=True)
+class TheoryCatalogDTO:
+    course_id: str
+    lectures: tuple[TheoryStepDTO, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class ChoiceTaskDTO:
     item_id: str
     step_id: str

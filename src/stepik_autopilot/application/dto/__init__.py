@@ -57,6 +57,8 @@ from .models import (
     TaskDTO,
     TaskTypeCountDTO,
     TextReplyDTO,
+    TheoryCatalogDTO,
+    TheoryStepDTO,
 )
 
 __all__ = (
@@ -116,4 +118,6 @@ __all__ = (
     "TaskTypeCountDTO",
     "TextAnswerDTO",
     "TextReplyDTO",
+    "TheoryCatalogDTO",
+    "TheoryStepDTO",
 )

@@ -1,5 +1,5 @@
-from stepik_autopilot.application.dto import CourseContentDTO, CoursePageDTO, PlanInputDTO, TaskDTO
-from stepik_autopilot.application.use_cases.run import PlanCourse
+from stepik_autopilot.application.dto import CourseContentDTO, CoursePageDTO, CourseSectionDTO, PlanInputDTO, TaskDTO
+from stepik_autopilot.application.use_cases.run import ListTheory, PlanCourse
 from stepik_autopilot.core.enums import Selection
 from stepik_autopilot.core.task_adapters import AdapterRegistry
 
@@ -27,7 +27,7 @@ class CourseGateway:
                 TaskDTO("7", "7", course_id, "matching", "", None, False, False),
                 TaskDTO("8", "8", course_id, "sorting", "", None, False, False),
             ),
-            sections=(),
+            sections=(CourseSectionDTO(1, "section-1", "Lecture section", ("4", "5")),),
         )
 
 
@@ -47,3 +47,13 @@ async def test_plan_includes_every_practical_kind_and_excludes_lectures() -> Non
         ("sorting", 1),
         ("table", 1),
     ]
+
+
+async def test_theory_lists_only_text_steps_with_content_and_progress() -> None:
+    theory = await ListTheory(CourseGateway()).execute(PlanInputDTO("42", Selection.REMAINING, None, None))
+
+    assert theory.course_id == "42"
+    assert [
+        (item.section_number, item.section_title, item.step_id, item.content, item.progress_is_passed)
+        for item in theory.lectures
+    ] == [(1, "Lecture section", "4", "", False)]

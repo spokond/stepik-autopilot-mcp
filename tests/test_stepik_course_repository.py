@@ -49,6 +49,11 @@ class FakeStepikClient:
         if path == "/api/steps":
             self.step_batches.append(identifiers)
         responses = {
+            "/api/sections": {
+                "10": {"id": 10, "title": "First section", "units": []},
+                "20": {"id": 20, "title": "Selected section", "units": [200]},
+                "30": {"id": 30, "title": "Third section", "units": []},
+            },
             "/api/units": {"200": {"id": 200, "assignments": [2000, 2001]}},
             "/api/assignments": {
                 "2000": {"id": 2000, "step": 501},
@@ -86,6 +91,21 @@ async def test_content_resolves_one_based_section_numbers_without_external_reque
     assert tuple(task.step_id for task in content.tasks) == ("501", "502")
     assert "/api/sections/10" not in client.requests
     assert "/api/sections/30" not in client.requests
+
+
+@pytest.mark.anyio
+async def test_content_returns_the_complete_outline_and_avoids_empty_resource_requests() -> None:
+    client = FakeStepikClient()
+    repository = StepikCourseRepository(cast("StepikApiClient", cast("object", client)))
+
+    content = await repository.content("42")
+
+    assert [(section.number, section.title, section.step_ids) for section in content.sections] == [
+        (1, "First section", ()),
+        (2, "Selected section", ("501", "502")),
+        (3, "Third section", ()),
+    ]
+    assert tuple(task.step_id for task in content.tasks) == ("501", "502")
 
 
 @pytest.mark.anyio

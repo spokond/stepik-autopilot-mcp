@@ -34,6 +34,7 @@ async def test_installed_stdio_server_loads_dotenv_and_serves_mcp(server_directo
             assert {tool.name for tool in tools.tools} == {
                 "stepik_courses",
                 "stepik_plan",
+                "stepik_theory",
                 "stepik_run_start",
                 "stepik_run_next",
                 "stepik_batch_commit",

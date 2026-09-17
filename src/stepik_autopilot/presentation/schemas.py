@@ -27,6 +27,8 @@ from stepik_autopilot.application.dto import (
     TableAnswerDTO,
     TaskTypeCountDTO,
     TextAnswerDTO,
+    TheoryCatalogDTO,
+    TheoryStepDTO,
 )
 from stepik_autopilot.core.enums import Grading, RunMode, Selection, Strategy, Target
 
@@ -106,6 +108,35 @@ class PlanCountsOutput(StrictModel):
             excluded_theory=value.excluded_theory,
             unsupported=value.unsupported,
         )
+
+
+class TheoryStepOutput(StrictModel):
+    section_number: int | None = Field(description="One-based outline section number, when available.")
+    section_title: str | None = Field(description="Outline section title, when available.")
+    step_id: str = Field(description="Stepik text-step identifier.")
+    assignment_id: str = Field(description="Stepik assignment identifier.")
+    content: str = Field(description="Raw lecture HTML from the text block.")
+    progress_is_passed: bool | None = Field(description="Stepik progress flag before any browser interaction.")
+
+    @classmethod
+    def from_dto(cls, value: TheoryStepDTO) -> TheoryStepOutput:
+        return cls(
+            section_number=value.section_number,
+            section_title=value.section_title,
+            step_id=value.step_id,
+            assignment_id=value.assignment_id,
+            content=value.content,
+            progress_is_passed=value.progress_is_passed,
+        )
+
+
+class TheoryCatalogOutput(StrictModel):
+    course_id: str = Field(description="Stepik course identifier.")
+    lectures: list[TheoryStepOutput] = Field(description="All available text lectures in course order.")
+
+    @classmethod
+    def from_dto(cls, value: TheoryCatalogDTO) -> TheoryCatalogOutput:
+        return cls(course_id=value.course_id, lectures=[TheoryStepOutput.from_dto(item) for item in value.lectures])
 
 
 class TaskTypeCountOutput(StrictModel):

@@ -29,6 +29,8 @@ from stepik_autopilot.application.dto import (
     SubmissionReceiptDTO,
     TaskDTO,
     TaskTypeCountDTO,
+    TheoryCatalogDTO,
+    TheoryStepDTO,
 )
 from stepik_autopilot.application.protocols import (
     BatchRepository,
@@ -98,6 +100,31 @@ class PlanCourse:
             types,
             content.sections,
         )
+
+
+class ListTheory:
+    """List text lectures and their source content without creating attempts."""
+
+    def __init__(self, courses: StepikCourseGateway) -> None:
+        self._courses = courses
+
+    async def execute(self, input: PlanInputDTO) -> TheoryCatalogDTO:
+        content = await self._courses.content(input.course_id, input.explicit_step_ids, input.section_numbers)
+        sections_by_step = {
+            step_id: (section.number, section.title) for section in content.sections for step_id in section.step_ids
+        }
+        lectures = tuple(
+            TheoryStepDTO(
+                *(sections_by_step.get(task.step_id, (None, None))),
+                task.step_id,
+                task.assignment_id,
+                task.question,
+                task.is_passed,
+            )
+            for task in content.tasks
+            if task.kind == "text"
+        )
+        return TheoryCatalogDTO(input.course_id, lectures)
 
 
 class StartRun:

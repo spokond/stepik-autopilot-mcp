@@ -27,7 +27,7 @@ def response_error_message(prefix: str, status: int, payload: object) -> str:
     return f"{prefix} ({'; '.join(details)})"
 
 
-def _network_error_message(prefix: str, error: aiohttp.ClientError) -> str:
+def _network_error_message(prefix: str, error: Exception) -> str:
     detail = " ".join(str(error).split())
     return f"{prefix} ({type(error).__name__}: {detail})" if detail else f"{prefix} ({type(error).__name__})"
 
@@ -65,7 +65,7 @@ class StepikTokenProvider:
                         if not isinstance(payload, dict) or not isinstance(payload.get("access_token"), str):
                             msg = "Stepik OAuth token response is malformed (access_token is missing)"
                             raise ExternalServiceError(msg)
-            except aiohttp.ClientError as error:
+            except (aiohttp.ClientError, TimeoutError) as error:
                 msg = _network_error_message("Stepik OAuth token request failed", error)
                 raise ExternalServiceError(msg) from error
             access_token = payload["access_token"]
@@ -155,7 +155,7 @@ class StepikApiClient:
                         msg = response_error_message("Stepik API request failed", response.status, payload)
                         raise ExternalServiceError(msg)
                     return payload
-        except aiohttp.ClientError as error:
+        except (aiohttp.ClientError, TimeoutError) as error:
             msg = _network_error_message("Stepik API request failed", error)
             raise ExternalServiceError(msg) from error
 
