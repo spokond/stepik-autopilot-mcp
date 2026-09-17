@@ -51,7 +51,9 @@ def build_mcp(settings: Settings) -> MCPServer:
     mcp.add_tool(bind_handler(stepik_run_start, container), name="stepik_run_start", description="Start a durable run.")
     mcp.add_tool(bind_handler(stepik_run_next, container), name="stepik_run_next", description="Lease the next batch.")
     mcp.add_tool(
-        bind_handler(stepik_batch_commit, container), name="stepik_batch_commit", description="Save or submit answers."
+        bind_handler(stepik_batch_commit, container),
+        name="stepik_batch_commit",
+        description="Save or submit answers; retry confirmed wrong number items with action=retry.",
     )
     mcp.add_tool(
         bind_handler(stepik_results_collect, container), name="stepik_results_collect", description="Collect outcomes."

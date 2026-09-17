@@ -1,15 +1,21 @@
 from stepik_autopilot.application.dto import (
+    BlanksAnswerDTO,
     ChoiceAnswerDTO,
     ChoiceDatasetDTO,
     ChoiceReplyDTO,
     CodeAnswerDTO,
     CodeReplyDTO,
+    MatchingAnswerDTO,
+    NumberReplyDTO,
     SqlAnswerDTO,
     SqlReplyDTO,
+    TableAnswerDTO,
     TextAnswerDTO,
     TextReplyDTO,
 )
+from stepik_autopilot.application.replies import ReplyDTO
 from stepik_autopilot.core.exceptions import UnsupportedTaskError, ValidationError
+from stepik_autopilot.core.structured_tasks import blanks_reply, matching_reply, table_reply
 
 
 class ChoiceAdapter:
@@ -32,17 +38,33 @@ class AdapterRegistry:
     def __init__(self) -> None:
         self._choice = ChoiceAdapter()
 
-    def build_reply(
+    def build_reply(  # noqa: PLR0911 - One branch per supported answer kind.
         self,
         kind: str,
-        answer: ChoiceAnswerDTO | TextAnswerDTO | SqlAnswerDTO | CodeAnswerDTO,
+        answer: ChoiceAnswerDTO
+        | TextAnswerDTO
+        | SqlAnswerDTO
+        | CodeAnswerDTO
+        | BlanksAnswerDTO
+        | MatchingAnswerDTO
+        | TableAnswerDTO,
         dataset: ChoiceDatasetDTO | None,
         code_languages: tuple[str, ...],
-    ) -> ChoiceReplyDTO | TextReplyDTO | SqlReplyDTO | CodeReplyDTO:
+        quiz_data: dict[str, object] | None = None,
+    ) -> ReplyDTO:
+        if quiz_data is not None:
+            if kind == "fill-blanks" and isinstance(answer, BlanksAnswerDTO):
+                return blanks_reply(answer, quiz_data)
+            if kind == "matching" and isinstance(answer, MatchingAnswerDTO):
+                return matching_reply(answer, quiz_data)
+            if kind == "table" and isinstance(answer, TableAnswerDTO):
+                return table_reply(answer, quiz_data)
         if kind == "choice" and isinstance(answer, ChoiceAnswerDTO) and dataset is not None:
             return self._choice.build_reply(answer, dataset)
-        if kind in {"string", "number"} and isinstance(answer, TextAnswerDTO):
+        if kind == "string" and isinstance(answer, TextAnswerDTO):
             return TextReplyDTO(answer.value)
+        if kind == "number" and isinstance(answer, TextAnswerDTO):
+            return NumberReplyDTO(answer.value)
         if kind == "sql" and isinstance(answer, SqlAnswerDTO):
             return SqlReplyDTO(answer.code)
         if kind == "code" and isinstance(answer, CodeAnswerDTO):
@@ -55,7 +77,7 @@ class AdapterRegistry:
 
     @staticmethod
     def is_supported(kind: str) -> bool:
-        return kind in {"choice", "string", "number", "sql", "code"}
+        return kind in {"choice", "string", "number", "sql", "code", "fill-blanks", "matching", "table"}
 
     @staticmethod
     def is_theory(kind: str) -> bool:

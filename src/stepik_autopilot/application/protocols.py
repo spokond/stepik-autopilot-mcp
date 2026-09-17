@@ -4,8 +4,6 @@ from stepik_autopilot.application.dto import (
     AttemptDTO,
     BatchCommitDTO,
     BatchDTO,
-    ChoiceReplyDTO,
-    CodeReplyDTO,
     CourseContentDTO,
     CoursePageDTO,
     ItemDTO,
@@ -15,11 +13,10 @@ from stepik_autopilot.application.dto import (
     RunControlDTO,
     RunDTO,
     RunStartedDTO,
-    SqlReplyDTO,
     SubmissionDTO,
     TaskDTO,
-    TextReplyDTO,
 )
+from stepik_autopilot.application.replies import ReplyDTO
 from stepik_autopilot.core.enums import ItemState, OperationState, RunState
 
 
@@ -80,6 +77,7 @@ class StepikAccountGateway(Protocol):
 
 class StepikCourseGateway(Protocol):
     async def courses(self, query: str | None, enrolled_only: bool, cursor: int, limit: int) -> CoursePageDTO: ...
+    async def code_templates(self, step_ids: tuple[str, ...]) -> dict[str, dict[str, str]]: ...
     async def content(
         self,
         course_id: str,
@@ -93,8 +91,6 @@ class StepikAttemptGateway(Protocol):
 
 
 class StepikSubmissionGateway(Protocol):
-    async def submit(
-        self, attempt_id: str, reply: ChoiceReplyDTO | TextReplyDTO | SqlReplyDTO | CodeReplyDTO
-    ) -> RemoteSubmissionDTO: ...
+    async def submit(self, attempt_id: str, reply: ReplyDTO) -> RemoteSubmissionDTO: ...
     async def submissions(self, ids: tuple[str, ...]) -> tuple[RemoteSubmissionDTO, ...]: ...
     async def find_submission(self, attempt_id: str, reply_hash: str) -> RemoteSubmissionDTO | None: ...

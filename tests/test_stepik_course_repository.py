@@ -16,6 +16,9 @@ if TYPE_CHECKING:
 class FakeStepikClient:
     def __init__(self) -> None:
         self.requests: list[str] = []
+        self.kind = "choice"
+        self.templates: object = None
+        self.step_batches: list[tuple[str, ...]] = []
 
     async def request(
         self,
@@ -43,6 +46,8 @@ class FakeStepikClient:
     ) -> AsyncIterator[dict[str, Any]]:
         del key
         identifiers = tuple(value for name, value in params or [] if name == "ids[]")
+        if path == "/api/steps":
+            self.step_batches.append(identifiers)
         responses = {
             "/api/units": {"200": {"id": 200, "assignments": [2000, 2001]}},
             "/api/assignments": {
@@ -53,9 +58,9 @@ class FakeStepikClient:
                 identifier: {
                     "id": int(identifier),
                     "block": {
-                        "name": "choice",
+                        "name": self.kind,
                         "text": f"Question {identifier}",
-                        "options": {"choices": ["A", "B"]},
+                        "options": {"choices": ["A", "B"], "code_templates": self.templates},
                     },
                 }
                 for identifier in identifiers
@@ -94,6 +99,39 @@ async def test_content_rejects_section_number_outside_course_outline() -> None:
     assert client.requests == ["/api/courses/42"]
 
 
+@pytest.mark.anyio
+async def test_content_preserves_editor_templates_including_whitespace_and_empty_source() -> None:
+    client = FakeStepikClient()
+    client.kind = "code"
+    client.templates = {"python3.12": "athletes = [('Дима', 10)]\n\ndef solve():\n    pass\n", "cpp": ""}
+    repository = StepikCourseRepository(cast("Any", client))
+    content = await repository.content("42", section_numbers=(2,))
+    assert content.tasks[0].code_templates == client.templates
+    assert content.tasks[0].code_languages == ("python3.12", "cpp")
+
+
+@pytest.mark.anyio
+async def test_template_lookup_reads_only_steps_in_bounded_deduplicated_batches() -> None:
+    client = FakeStepikClient()
+    client.kind = "code"
+    client.templates = {"python3.12": "athletes = []\n"}
+    repository = StepikCourseRepository(cast("Any", client))
+    step_ids = tuple(map(str, range(31)))
+    templates = await repository.code_templates((*step_ids, "0"))
+    assert templates == dict.fromkeys(step_ids, client.templates)
+    assert client.step_batches == [step_ids[:30], step_ids[30:]]
+    assert not client.requests
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("raw", [[], {"python3": None}, {1: "code"}])
+async def test_template_lookup_rejects_malformed_source(raw) -> None:
+    client = FakeStepikClient()
+    client.kind, client.templates = "code", raw
+    with pytest.raises(ExternalServiceError, match="code templates are malformed"):
+        await StepikCourseRepository(cast("Any", client)).code_templates(("501",))
+
+
 class AttemptClient:
     def __init__(self, dataset: object) -> None:
         self._dataset = dataset
@@ -116,6 +154,10 @@ def choice_task() -> TaskDTO:
     return TaskDTO("501", "2000", "42", "choice", "Question", None, False, False)
 
 
+def task(kind: str, code_languages: tuple[str, ...] = ()) -> TaskDTO:
+    return TaskDTO("501", "2000", "42", kind, "Question", None, False, False, code_languages=code_languages)
+
+
 @pytest.mark.anyio
 async def test_prepare_attempt_decodes_serialized_choice_dataset() -> None:
     client = AttemptClient('{"options": ["A", "B"], "is_multiple_choice": false}')
@@ -136,3 +178,27 @@ async def test_prepare_attempt_rejects_non_object_serialized_dataset() -> None:
 
     with pytest.raises(ExternalServiceError, match="Stepik attempt dataset is malformed"):
         await repository.prepare_attempt(choice_task())
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("kind", ["string", "number", "sql"])
+async def test_prepare_attempt_allows_plugin_specific_dataset_when_it_is_not_needed(kind: str) -> None:
+    client = AttemptClient(None)
+    repository = StepikAttemptRepository(cast("StepikApiClient", cast("object", client)))
+
+    attempt = await repository.prepare_attempt(task(kind))
+
+    assert attempt.id == "42"
+    assert attempt.dataset is None
+
+
+@pytest.mark.anyio
+async def test_prepare_code_attempt_uses_languages_from_step_options() -> None:
+    client = AttemptClient("")
+    repository = StepikAttemptRepository(cast("StepikApiClient", cast("object", client)))
+
+    attempt = await repository.prepare_attempt(task("code", ("python3", "cpp")))
+
+    assert attempt.id == "42"
+    assert attempt.dataset is None
+    assert attempt.code_languages == ("python3", "cpp")

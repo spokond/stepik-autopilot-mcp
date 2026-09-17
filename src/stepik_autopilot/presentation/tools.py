@@ -146,7 +146,12 @@ async def stepik_run_control(container: AsyncContainer, arguments: RunControlInp
         async with container(scope=Scope.REQUEST) as request_container:
             return RunControlOutput.from_dto(
                 await (await request_container.get(ControlRun)).execute(
-                    RunControlInputDTO(arguments.run_id, arguments.action, arguments.request_id)
+                    RunControlInputDTO(
+                        arguments.run_id,
+                        arguments.action,
+                        arguments.request_id,
+                        tuple(arguments.explicit_step_ids) if arguments.explicit_step_ids is not None else None,
+                    )
                 )
             )
     except StepikAutopilotError as error:

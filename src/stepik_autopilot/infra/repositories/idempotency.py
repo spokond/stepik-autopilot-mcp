@@ -99,6 +99,10 @@ class IdempotencyRepository(SQLAlchemyRepository):
         value = await self._get(account_id, "run_control", request_id, payload_hash)
         if value is None:
             return None
+        added = value.get("added_items", [])
+        if not isinstance(added, list):
+            msg = "stored added items are malformed"
+            raise ConflictError(msg)
         recovery = value["recovery_required"]
         reconciled = value["reconciled"]
         if not isinstance(recovery, list) or not isinstance(reconciled, list):
@@ -109,6 +113,7 @@ class IdempotencyRepository(SQLAlchemyRepository):
             RunState(str(value["state"])),
             tuple(str(v) for v in recovery),
             tuple(str(v) for v in reconciled),
+            tuple(str(v) for v in added),
         )
 
     async def save_control(self, account_id: str, request_id: str, payload_hash: str, value: RunControlDTO) -> None:
@@ -122,6 +127,7 @@ class IdempotencyRepository(SQLAlchemyRepository):
                 "state": value.state.value,
                 "recovery_required": list(value.recovery_required),
                 "reconciled": list(value.reconciled),
+                "added_items": list(value.added_items),
             },
         )
 
@@ -182,6 +188,17 @@ class IdempotencyRepository(SQLAlchemyRepository):
             raise ConflictError(msg)
         languages = raw.get("code_languages")
         code_languages = tuple(str(language) for language in languages) if isinstance(languages, list) else ()
+        code_templates = raw.get("code_templates")
+        if code_templates is not None and (
+            not isinstance(code_templates, dict)
+            or not all(isinstance(key, str) and isinstance(value, str) for key, value in code_templates.items())
+        ):
+            msg = "stored batch code templates are malformed"
+            raise ConflictError(msg)
+        quiz_data = raw.get("quiz_data")
+        if quiz_data is not None and not isinstance(quiz_data, dict):
+            msg = "stored batch quiz dataset is malformed"
+            raise ConflictError(msg)
         return ChoiceTaskDTO(
             str(raw["item_id"]),
             str(raw["step_id"]),
@@ -192,6 +209,8 @@ class IdempotencyRepository(SQLAlchemyRepository):
             str(raw["expires_at"]) if raw["expires_at"] is not None else None,
             str(raw.get("kind", "choice")),
             code_languages,
+            quiz_data,
+            code_templates,
         )
 
     @staticmethod
@@ -206,6 +225,8 @@ class IdempotencyRepository(SQLAlchemyRepository):
             "expires_at": value.expires_at,
             "kind": value.kind,
             "code_languages": list(value.code_languages),
+            "code_templates": value.code_templates,
+            "quiz_data": value.quiz_data,
         }
 
     @staticmethod

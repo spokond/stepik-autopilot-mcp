@@ -1,23 +1,21 @@
-import hashlib
 import json
 from collections.abc import Mapping
 
 from stepik_autopilot.application.dto import (
     AttemptDTO,
     ChoiceDatasetDTO,
-    ChoiceReplyDTO,
-    CodeReplyDTO,
     CourseContentDTO,
     CoursePageDTO,
     CourseSectionDTO,
     CourseSummaryDTO,
     RemoteSubmissionDTO,
-    SqlReplyDTO,
     TaskDTO,
-    TextReplyDTO,
 )
+from stepik_autopilot.application.replies import ReplyDTO, hash_payload, reply_payload
 from stepik_autopilot.core.enums import ItemState
 from stepik_autopilot.core.exceptions import ExternalServiceError, UnsupportedTaskError, ValidationError
+from stepik_autopilot.core.structured_tasks import STRUCTURED_KINDS, validate_quiz_data
+from stepik_autopilot.core.task_adapters import AdapterRegistry
 
 from .client import StepikApiClient
 
@@ -155,6 +153,20 @@ class StepikCourseRepository:
             raise ValidationError(msg)
         return CourseContentDTO(tuple(tasks), tuple(selected_sections))
 
+    async def code_templates(self, step_ids: tuple[str, ...]) -> dict[str, dict[str, str]]:
+        steps = await self._by_ids("/api/steps", "steps", tuple(dict.fromkeys(step_ids)))
+        templates: dict[str, dict[str, str]] = {}
+        for step in steps:
+            task = self._task(step, "", "", None, None)
+            if task.kind != "code" or task.code_templates is None:
+                msg = f"Stepik step {task.step_id} is not a code task"
+                raise ExternalServiceError(msg)
+            templates[task.step_id] = task.code_templates
+        if missing := set(step_ids).difference(templates):
+            msg = f"Stepik code steps not found: {', '.join(sorted(missing))}"
+            raise ExternalServiceError(msg)
+        return templates
+
     @staticmethod
     def _selected_sections(
         section_ids: tuple[str, ...], requested: frozenset[int] | None
@@ -193,6 +205,8 @@ class StepikCourseRepository:
         options = options_raw if isinstance(options_raw, Mapping) else {}
         choices_raw = options.get("choices")
         choices = tuple(str(choice) for choice in choices_raw) if isinstance(choices_raw, list) else ()
+        templates = StepikCourseRepository._code_templates(options.get("code_templates")) if kind == "code" else None
+        code_languages = tuple(templates) if templates is not None else ()
         return TaskDTO(
             step_id=str(step["id"]),
             assignment_id=assignment_id,
@@ -204,7 +218,23 @@ class StepikCourseRepository:
             failed=False,
             choice_options=choices,
             is_multiple_choice=bool(options.get("is_multiple_choice", False)),
+            code_languages=code_languages,
+            code_templates=templates,
         )
+
+    @staticmethod
+    def _code_templates(raw: object) -> dict[str, str]:
+        if raw is None:
+            return {}
+        msg = "Stepik code templates are malformed"
+        if not isinstance(raw, Mapping):
+            raise ExternalServiceError(msg)
+        templates: dict[str, str] = {}
+        for language, template in raw.items():
+            if not isinstance(language, str) or not isinstance(template, str):
+                raise ExternalServiceError(msg)
+            templates[language] = template
+        return templates
 
 
 class StepikAttemptRepository:
@@ -212,7 +242,7 @@ class StepikAttemptRepository:
         self._client = client
 
     async def prepare_attempt(self, task: TaskDTO) -> AttemptDTO:
-        if task.kind not in {"choice", "string", "number", "sql", "code"}:
+        if not AdapterRegistry.is_supported(task.kind):
             msg = f"unsupported task {task.kind}"
             raise UnsupportedTaskError(msg)
         payload = await self._client.request("POST", "/api/attempts", json={"attempt": {"step": int(task.step_id)}})
@@ -221,31 +251,37 @@ class StepikAttemptRepository:
             msg = "Stepik attempt response is malformed"
             raise ExternalServiceError(msg)
         attempt = values[0]
-        dataset_raw = _attempt_dataset(attempt.get("dataset"))
-        options_raw = dataset_raw.get("options")
+        # The dataset belongs to the Stepik quiz plugin. Code attempts return
+        # an empty string, while languages belong to the step block options.
+        # Choice and structured quizzes require attempt-specific datasets.
+        dataset_raw: Mapping[str, object] | None = None
+        quiz_data = None
+        if task.kind == "choice":
+            dataset_raw = _attempt_dataset(attempt.get("dataset"))
+        elif task.kind in STRUCTURED_KINDS:
+            quiz_data = validate_quiz_data(task.kind, _attempt_dataset(attempt.get("dataset")))
+        options_raw = dataset_raw.get("options") if dataset_raw is not None else None
+        is_multiple_choice = bool(dataset_raw.get("is_multiple_choice", False)) if dataset_raw is not None else False
         if task.kind == "choice" and not isinstance(options_raw, list):
             msg = "choice attempt has no confirmed options"
             raise UnsupportedTaskError(msg)
         code_languages: tuple[str, ...] = ()
         if task.kind == "code":
-            options = options_raw if isinstance(options_raw, Mapping) else {}
-            templates = options.get("code_templates")
-            if not isinstance(templates, Mapping) or not templates:
+            if not task.code_languages:
                 msg = "code attempt has no confirmed languages"
                 raise UnsupportedTaskError(msg)
-            code_languages = tuple(str(language) for language in templates)
+            code_languages = task.code_languages
         return AttemptDTO(
             id=str(attempt["id"]),
             step_id=task.step_id,
             dataset=(
-                ChoiceDatasetDTO(
-                    tuple(str(option) for option in options_raw), bool(dataset_raw.get("is_multiple_choice", False))
-                )
+                ChoiceDatasetDTO(tuple(str(option) for option in options_raw), is_multiple_choice)
                 if isinstance(options_raw, list)
                 else None
             ),
             expires_at=str(attempt["time_left"]) if attempt.get("time_left") is not None else None,
             code_languages=code_languages,
+            quiz_data=quiz_data,
         )
 
 
@@ -253,22 +289,11 @@ class StepikSubmissionRepository:
     def __init__(self, client: StepikApiClient) -> None:
         self._client = client
 
-    async def submit(
-        self, attempt_id: str, reply: ChoiceReplyDTO | TextReplyDTO | SqlReplyDTO | CodeReplyDTO
-    ) -> RemoteSubmissionDTO:
-        payload = (
-            {"choices": list(reply.choices)}
-            if isinstance(reply, ChoiceReplyDTO)
-            else {"text": reply.text}
-            if isinstance(reply, TextReplyDTO)
-            else {"solve_sql": reply.solve_sql}
-            if isinstance(reply, SqlReplyDTO)
-            else {"language": reply.language, "code": reply.code}
-        )
+    async def submit(self, attempt_id: str, reply: ReplyDTO) -> RemoteSubmissionDTO:
         payload = await self._client.request(
             "POST",
             "/api/submissions",
-            json={"submission": {"attempt": int(attempt_id), "reply": payload}},
+            json={"submission": {"attempt": int(attempt_id), "reply": reply_payload(reply)}},
         )
         values = _objects(payload, "submissions")
         if not values:
@@ -289,9 +314,7 @@ class StepikSubmissionRepository:
         async for value in self._client.paged("/api/submissions", "submissions", [("attempt", attempt_id)]):
             reply = value.get("reply")
             if isinstance(reply, Mapping):
-                digest = hashlib.sha256(
-                    json.dumps(dict(reply), sort_keys=True, separators=(",", ":")).encode()
-                ).hexdigest()
+                digest = hash_payload(reply)
                 if digest == reply_hash:
                     return self._submission(value)
         return None

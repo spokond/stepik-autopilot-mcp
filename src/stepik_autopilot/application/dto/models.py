@@ -30,6 +30,38 @@ class TextReplyDTO:
 
 
 @dataclass(frozen=True, slots=True)
+class NumberReplyDTO:
+    number: str
+
+
+@dataclass(frozen=True, slots=True)
+class BlanksReplyDTO:
+    blanks: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class MatchingReplyDTO:
+    ordering: tuple[int, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class TableCellDTO:
+    name: str
+    answer: bool
+
+
+@dataclass(frozen=True, slots=True)
+class TableRowDTO:
+    name_row: str
+    columns: tuple[TableCellDTO, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class TableReplyDTO:
+    choices: tuple[TableRowDTO, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class SqlReplyDTO:
     solve_sql: str
 
@@ -72,6 +104,8 @@ class TaskDTO:
     failed: bool
     choice_options: tuple[str, ...] = ()
     is_multiple_choice: bool = False
+    code_languages: tuple[str, ...] = ()
+    code_templates: dict[str, str] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,6 +121,7 @@ class AttemptDTO:
     dataset: ChoiceDatasetDTO | None
     expires_at: str | None
     code_languages: tuple[str, ...] = ()
+    quiz_data: dict[str, object] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,6 +152,8 @@ class ItemDTO:
     expires_at: str | None = None
     batch_id: str | None = None
     draft_revision: int = 0
+    quiz_data: dict[str, object] | None = None
+    code_templates: dict[str, str] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,7 +189,16 @@ class OperationDTO:
     account_id: str
     item_id: str
     attempt_id: str
-    reply: ChoiceReplyDTO | TextReplyDTO | SqlReplyDTO | CodeReplyDTO
+    reply: (
+        ChoiceReplyDTO
+        | TextReplyDTO
+        | NumberReplyDTO
+        | SqlReplyDTO
+        | CodeReplyDTO
+        | BlanksReplyDTO
+        | MatchingReplyDTO
+        | TableReplyDTO
+    )
     state: OperationState
     reply_hash: str
     upstream_id: str | None = None
@@ -193,6 +239,8 @@ class ChoiceTaskDTO:
     expires_at: str | None
     kind: str = "choice"
     code_languages: tuple[str, ...] = ()
+    quiz_data: dict[str, object] | None = None
+    code_templates: dict[str, str] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -253,6 +301,7 @@ class RunControlDTO:
     state: RunState
     recovery_required: tuple[str, ...]
     reconciled: tuple[str, ...]
+    added_items: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -269,6 +318,10 @@ class ItemResourceDTO:
     state: ItemState
     kind: str
     question: str
+    step_id: str = ""
+    attempt_id: str | None = None
+    quiz_data: dict[str, object] | None = None
+    code_templates: dict[str, str] | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -5,12 +5,14 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_vali
 from stepik_autopilot.application.dto import (
     BatchCommitDTO,
     BatchDTO,
+    BlanksAnswerDTO,
     ChoiceAnswerDTO,
     CodeAnswerDTO,
     CommitAnswerDTO,
     CoursePageDTO,
     CourseSectionDTO,
     ItemResourceDTO,
+    MatchingAnswerDTO,
     NextBatchStateDTO,
     PlanCountsDTO,
     PlanDTO,
@@ -22,6 +24,7 @@ from stepik_autopilot.application.dto import (
     SqlAnswerDTO,
     SubmissionReceiptDTO,
     SubmissionResourceDTO,
+    TableAnswerDTO,
     TaskTypeCountDTO,
     TextAnswerDTO,
 )
@@ -69,7 +72,9 @@ class PlanOutput(StrictModel):
     course_id: str = Field(description="Planned course.")
     selection: str = Field(description="Selection mode.")
     counts: PlanCountsOutput = Field(description="Counted plan categories.")
-    task_types: list[TaskTypeCountOutput] = Field(description="Observed Stepik task kinds and counts.")
+    task_types: list[TaskTypeCountOutput] = Field(
+        description="Observed practical Stepik task kinds and counts; text and video are excluded."
+    )
     sections: list[CourseSectionOutput] = Field(
         description="Resolved section numbers, Stepik identifiers, titles, and selected steps."
     )
@@ -86,7 +91,7 @@ class PlanOutput(StrictModel):
 
 
 class PlanCountsOutput(StrictModel):
-    available: int = Field(description="Supported available tasks.")
+    available: int = Field(description="Available practical tasks; unsupported types are counted separately.")
     passed: int = Field(description="Passed practical tasks.")
     unknown_progress: int = Field(description="Tasks with unknown progress.")
     excluded_theory: int = Field(description="Excluded lecture tasks.")
@@ -122,11 +127,21 @@ class ChoiceBatchItemOutput(StrictModel):
     expires_at: str | None = Field(description="Attempt expiration timestamp.")
     kind: str = Field(description="Stepik block kind.")
     code_languages: list[str] = Field(description="Languages accepted by a code attempt.")
+    code_templates: dict[str, str] | None = Field(
+        default=None, description="Original editor source by language for code tasks; preserve supplied variables."
+    )
+    quiz_data: dict[str, object] | None = Field(
+        default=None,
+        description=(
+            "Attempt-specific dataset: fill-blanks components (text/input/select, text, options); "
+            "matching pairs (first, second); table rows, columns and is_checkbox. Preserve this order."
+        ),
+    )
 
 
 class BatchOutput(StrictModel):
     batch_id: str = Field(description="Durable batch identifier.")
-    items: list[ChoiceBatchItemOutput] = Field(description="Prepared choice tasks.")
+    items: list[ChoiceBatchItemOutput] = Field(description="Prepared tasks with attempt-specific answer options.")
     more_available: bool = Field(description="Whether another ready batch exists.")
     recovered: bool = Field(description="Whether this is a recovered lease.")
 
@@ -145,6 +160,8 @@ class BatchOutput(StrictModel):
                     expires_at=x.expires_at,
                     kind=x.kind,
                     code_languages=list(x.code_languages),
+                    code_templates=x.code_templates,
+                    quiz_data=x.quiz_data,
                 )
                 for x in value.items
             ],
@@ -236,6 +253,7 @@ class RunControlOutput(StrictModel):
     state: str = Field(description="New run state.")
     recovery_required: list[str] = Field(description="Items needing reconciliation.")
     reconciled: list[str] = Field(description="Reconciled items.")
+    added_items: list[str] = Field(default_factory=list, description="Items added by the include action.")
 
     @classmethod
     def from_dto(cls, value: RunControlDTO) -> RunControlOutput:
@@ -244,6 +262,7 @@ class RunControlOutput(StrictModel):
             state=value.state.value,
             recovery_required=list(value.recovery_required),
             reconciled=list(value.reconciled),
+            added_items=list(value.added_items),
         )
 
 
@@ -267,10 +286,25 @@ class ItemResourceOutput(StrictModel):
     state: str = Field(description="Item state.")
     kind: str = Field(description="Stepik block kind.")
     question: str = Field(description="Question text.")
+    step_id: str = Field(description="Stepik step identifier, available before preparing an attempt.")
+    attempt_id: str | None = Field(default=None, description="Prepared attempt identifier, if any.")
+    quiz_data: dict[str, object] | None = Field(default=None, description="Prepared structured quiz dataset, if any.")
+    code_templates: dict[str, str] | None = Field(
+        default=None, description="Original editor source by language for code tasks, available before attempts."
+    )
 
     @classmethod
     def from_dto(cls, value: ItemResourceDTO) -> ItemResourceOutput:
-        return cls(id=value.id, state=value.state.value, kind=value.kind, question=value.question)
+        return cls(
+            id=value.id,
+            state=value.state.value,
+            kind=value.kind,
+            question=value.question,
+            step_id=value.step_id,
+            attempt_id=value.attempt_id,
+            quiz_data=value.quiz_data,
+            code_templates=value.code_templates,
+        )
 
 
 class RunResourceOutput(StrictModel):
@@ -338,9 +372,45 @@ class SqlAnswerInput(StrictModel):
         return SqlAnswerDTO(self.code)
 
 
+class BlanksAnswerInput(StrictModel):
+    kind: Literal["fill-blanks"]
+    blanks: list[str] = Field(description="One string for each input/select component, excluding text components.")
+
+    def to_dto(self) -> BlanksAnswerDTO:
+        return BlanksAnswerDTO(tuple(self.blanks))
+
+
+class MatchingAnswerInput(StrictModel):
+    kind: Literal["matching"]
+    ordering: list[Annotated[int, Field(ge=0)]] = Field(
+        min_length=1, description="For each first in dataset order, the zero-based index of its matching second."
+    )
+
+    def to_dto(self) -> MatchingAnswerDTO:
+        return MatchingAnswerDTO(tuple(self.ordering))
+
+
+class TableAnswerInput(StrictModel):
+    kind: Literal["table"]
+    selected_columns: list[list[Annotated[int, Field(ge=0)]]] = Field(
+        min_length=1, description="Selected zero-based column indexes for every row, in dataset row order."
+    )
+
+    def to_dto(self) -> TableAnswerDTO:
+        return TableAnswerDTO(tuple(tuple(row) for row in self.selected_columns))
+
+
 class CommitAnswerInput(StrictModel):
     item_id: Identifier
-    answer: ChoiceAnswerInput | TextAnswerInput | SqlAnswerInput | CodeAnswerInput
+    answer: (
+        ChoiceAnswerInput
+        | TextAnswerInput
+        | SqlAnswerInput
+        | CodeAnswerInput
+        | BlanksAnswerInput
+        | MatchingAnswerInput
+        | TableAnswerInput
+    )
 
     def to_dto(self) -> CommitAnswerDTO:
         return CommitAnswerDTO(self.item_id, self.answer.to_dto())
@@ -427,7 +497,22 @@ class IdempotentRunInput(RunIdInput):
 
 
 class RunControlInput(IdempotentRunInput):
-    action: Literal["pause", "resume", "cancel"]
+    action: Literal["pause", "resume", "cancel", "include"]
+    explicit_step_ids: list[Identifier] | None = Field(
+        default=None,
+        min_length=1,
+        description="Only for include: add these supported, unpassed steps without preparing attempts.",
+    )
+
+    @model_validator(mode="after")
+    def validate_include_scope(self) -> RunControlInput:
+        if (self.action == "include") != (self.explicit_step_ids is not None):
+            msg = "explicit_step_ids must be provided only for action=include"
+            raise ValueError(msg)
+        if self.explicit_step_ids is not None and len(set(self.explicit_step_ids)) != len(self.explicit_step_ids):
+            msg = "explicit_step_ids must not contain duplicates"
+            raise ValueError(msg)
+        return self
 
 
 class RunStatusInput(RunIdInput):
@@ -437,7 +522,9 @@ class RunStatusInput(RunIdInput):
 class BatchCommitInput(StrictModel):
     run_id: Identifier
     request_id: RequestId
-    action: Literal["save", "submit"]
+    action: Literal["save", "submit", "retry"] = Field(
+        description="save a draft, submit leased answers, or retry confirmed wrong number items with fresh attempts."
+    )
     answers: list[CommitAnswerInput] = Field(min_length=1)
     draft_revision: int | None = Field(default=None, ge=1)
 

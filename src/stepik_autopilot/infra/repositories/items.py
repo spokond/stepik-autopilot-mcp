@@ -76,7 +76,9 @@ class ItemRepository(SQLAlchemyRepository):
                 "options": list(dataset.options) if dataset else [],
                 "is_multiple_choice": dataset.is_multiple_choice if dataset else False,
                 "code_languages": list(item.code_languages),
+                "code_templates": item.code_templates,
                 "expires_at": item.expires_at,
+                "quiz_data": item.quiz_data,
             },
             "batch_id": item.batch_id,
             "lease_until": item.expires_at,
@@ -95,13 +97,24 @@ class ItemRepository(SQLAlchemyRepository):
             raise ConflictError(msg)
         attempt_id = row["attempt_id"]
         dataset = None
-        if attempt_id is not None:
+        if attempt_id is not None and row["kind"] == "choice":
             dataset = ChoiceDatasetDTO(
                 options=tuple(str(option) for option in options),
                 is_multiple_choice=bool(payload["is_multiple_choice"]),
             )
         languages = payload.get("code_languages")
         code_languages = tuple(str(language) for language in languages) if isinstance(languages, list) else ()
+        code_templates = payload.get("code_templates")
+        if code_templates is not None and (
+            not isinstance(code_templates, dict)
+            or not all(isinstance(key, str) and isinstance(value, str) for key, value in code_templates.items())
+        ):
+            msg = "stored code templates are malformed"
+            raise ConflictError(msg)
+        quiz_data = payload.get("quiz_data")
+        if quiz_data is not None and not isinstance(quiz_data, dict):
+            msg = "stored quiz dataset is malformed"
+            raise ConflictError(msg)
         return ItemDTO(
             id=str(row["id"]),
             run_id=str(row["run_id"]),
@@ -116,4 +129,6 @@ class ItemRepository(SQLAlchemyRepository):
             expires_at=str(payload["expires_at"]) if payload["expires_at"] is not None else None,
             batch_id=str(row["batch_id"]) if row["batch_id"] is not None else None,
             draft_revision=int(str(row["draft_revision"])),
+            quiz_data=quiz_data,
+            code_templates=code_templates,
         )

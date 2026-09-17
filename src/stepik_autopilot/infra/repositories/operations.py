@@ -3,7 +3,20 @@ from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
 
-from stepik_autopilot.application.dto import ChoiceReplyDTO, CodeReplyDTO, OperationDTO, SqlReplyDTO, TextReplyDTO
+from stepik_autopilot.application.dto import (
+    BlanksReplyDTO,
+    ChoiceReplyDTO,
+    CodeReplyDTO,
+    MatchingReplyDTO,
+    NumberReplyDTO,
+    OperationDTO,
+    SqlReplyDTO,
+    TableCellDTO,
+    TableReplyDTO,
+    TableRowDTO,
+    TextReplyDTO,
+)
+from stepik_autopilot.application.replies import ReplyDTO, reply_payload
 from stepik_autopilot.core.enums import OperationState
 from stepik_autopilot.core.exceptions import ConflictError
 from stepik_autopilot.infra.tables import items, operations, runs
@@ -72,31 +85,59 @@ class OperationRepository(SQLAlchemyRepository):
         )
 
     @staticmethod
-    def _reply_value(reply: ChoiceReplyDTO | TextReplyDTO | SqlReplyDTO | CodeReplyDTO) -> dict[str, object]:
-        if isinstance(reply, ChoiceReplyDTO):
-            return {"kind": "choice", "choices": list(reply.choices)}
-        if isinstance(reply, TextReplyDTO):
-            return {"kind": "text", "text": reply.text}
-        if isinstance(reply, SqlReplyDTO):
-            return {"kind": "sql", "solve_sql": reply.solve_sql}
-        return {"kind": "code", "language": reply.language, "code": reply.code}
+    def _reply_value(reply: ReplyDTO) -> dict[str, object]:
+        kinds = {
+            ChoiceReplyDTO: "choice",
+            TextReplyDTO: "text",
+            NumberReplyDTO: "number",
+            SqlReplyDTO: "sql",
+            CodeReplyDTO: "code",
+            BlanksReplyDTO: "fill-blanks",
+            MatchingReplyDTO: "matching",
+            TableReplyDTO: "table",
+        }
+        return {"kind": kinds[type(reply)], **reply_payload(reply)}
 
     @staticmethod
-    def _reply(raw: object) -> ChoiceReplyDTO | TextReplyDTO | SqlReplyDTO | CodeReplyDTO:
+    def _reply(raw: object) -> ReplyDTO:  # noqa: PLR0911 - One branch per persisted reply variant.
         msg = "stored operation reply is malformed"
         if not isinstance(raw, Mapping):
             raise ConflictError(msg)
         choices = raw.get("choices")
         text = raw.get("text")
+        number = raw.get("number")
         language = raw.get("language")
         code = raw.get("code")
         solve_sql = raw.get("solve_sql")
+        blanks = raw.get("blanks")
+        ordering = raw.get("ordering")
+        if raw.get("kind") == "fill-blanks" and isinstance(blanks, list) and all(isinstance(v, str) for v in blanks):
+            return BlanksReplyDTO(tuple(blanks))
+        if raw.get("kind") == "matching" and isinstance(ordering, list) and all(type(v) is int for v in ordering):
+            return MatchingReplyDTO(tuple(ordering))
+        if raw.get("kind") == "table" and isinstance(choices, list):
+            return TableReplyDTO(tuple(OperationRepository._table_row(row) for row in choices))
         if raw.get("kind") == "choice" and isinstance(choices, list):
             return ChoiceReplyDTO(tuple(bool(value) for value in choices))
         if raw.get("kind") == "text" and isinstance(text, str):
             return TextReplyDTO(text)
+        if raw.get("kind") == "number" and isinstance(number, str):
+            return NumberReplyDTO(number)
         if raw.get("kind") == "sql" and isinstance(solve_sql, str):
             return SqlReplyDTO(solve_sql)
         if raw.get("kind") == "code" and isinstance(language, str) and isinstance(code, str):
             return CodeReplyDTO(language, code)
         raise ConflictError(msg)
+
+    @staticmethod
+    def _table_row(raw: object) -> TableRowDTO:
+        msg = "stored table reply is malformed"
+        if not isinstance(raw, Mapping) or not isinstance(raw.get("name_row"), str):
+            raise ConflictError(msg)
+        columns = raw.get("columns")
+        if not isinstance(columns, list) or not all(
+            isinstance(cell, Mapping) and isinstance(cell.get("name"), str) and isinstance(cell.get("answer"), bool)
+            for cell in columns
+        ):
+            raise ConflictError(msg)
+        return TableRowDTO(str(raw["name_row"]), tuple(TableCellDTO(cell["name"], cell["answer"]) for cell in columns))
