@@ -570,8 +570,8 @@ class CommitBatch:
     async def _validate_retry(
         self, account: str, run_id: str, selected: tuple[ItemDTO, ...], previous: dict[str, SubmissionDTO]
     ) -> None:
-        if any(item.kind not in {"number", "code"} for item in selected):
-            msg = "retry currently supports only confirmed wrong number or code items"
+        if any(item.kind not in {"string", "number", "code"} for item in selected):
+            msg = "retry currently supports only confirmed wrong string, number or code items"
             raise ValidationError(msg)
         ids = {item.id for item in selected}
         unresolved = await self._operations.unresolved_operations(account, run_id)

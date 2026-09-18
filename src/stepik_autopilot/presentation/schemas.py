@@ -555,7 +555,8 @@ class BatchCommitInput(StrictModel):
     request_id: RequestId
     action: Literal["save", "submit", "retry"] = Field(
         description=(
-            "save a draft, submit leased answers, or retry confirmed wrong number or code items with fresh attempts."
+            "save a draft, submit leased answers, or retry confirmed wrong string, number or code items "
+            "with fresh attempts."
         )
     )
     answers: list[CommitAnswerInput] = Field(min_length=1)

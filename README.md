@@ -526,17 +526,17 @@ draft_revision, затем жди моего подтверждения.
 [формирование fill-blanks](https://github.com/StepicOrg/stepik-android/blob/master/app/src/main/java/org/stepik/android/view/step_quiz_fill_blanks/ui/delegate/FillBlanksStepQuizFormDelegate.kt),
 [сериализация table](https://github.com/StepicOrg/stepik-android/blob/master/app/src/main/java/org/stepic/droid/jsonHelpers/serializers/ReplySerializer.java).
 
-### Восстановление после исправления числового адаптера
+### Повторная отправка подтверждённо неверных заданий
 
 1. Запустите обновлённый MCP-сервер с прежней SQLite-базой и подключитесь заново.
 2. Выполните `stepik_run_control` с `action="resume"`, прежним `run_id` и новым
    `request_id`. Неопределённые отправки сверяются по сохранённому хешу исходного
    запроса; старые текстовые ответы не переинтерпретируются как числовые.
-3. Для подтверждённых `wrong` числовых заданий вызовите `stepik_batch_commit`
-   с `action="retry"`, новым `request_id` и исправленными ответами `kind="number"`.
+3. Для подтверждённых `wrong` заданий `string`, `number` или `code` вызовите `stepik_batch_commit`
+   с `action="retry"`, новым `request_id` и исправленными ответами соответствующего типа.
    Сервер проверит текущую оценку Stepik и подготовит попытку перед отправкой.
-   `retry` пока ограничен типом `number`, чтобы не использовать индексы старой
-   попытки для заново перемешанных вариантов.
+   `retry` ограничен этими типами, потому что их ответы не используют данные старой
+   попытки; для вариантов с возможным перемешиванием нужен отдельный контракт.
 4. Выполните `stepik_results_collect`. В результатах учитывается текущая отправка
    каждого задания; исходные отправки остаются в журнале операций. Чужой активный
    пакет и его подготовленные задания сохраняются.

@@ -252,6 +252,32 @@ class Scenario:
         )
         self.gateway.remote["50"] = RemoteSubmissionDTO("50", ItemState.WRONG, None, False)
 
+    async def seed_wrong_string(self) -> None:
+        item = ItemDTO(
+            "string1",
+            "run",
+            "60",
+            "1",
+            "string",
+            "question",
+            ItemState.WRONG,
+            attempt_id="60",
+            batch_id="old",
+        )
+        old_reply = TextReplyDTO("wrong")
+        await self.items.add_items((item,))
+        await self.operations.create_operation(
+            OperationDTO(
+                "old-string", "account", item.id, "60", old_reply, OperationState.ACCEPTED, hash_reply(old_reply), "60"
+            )
+        )
+        await self.submissions.create_submission(
+            SubmissionDTO(
+                "s-string", item.id, DeliveryState.ACCEPTED, ItemState.WRONG, "60", hash_reply(old_reply), "old-string"
+            )
+        )
+        self.gateway.remote["60"] = RemoteSubmissionDTO("60", ItemState.WRONG, None, False)
+
 
 @pytest.fixture
 def anyio_backend() -> str:
@@ -334,6 +360,28 @@ async def test_retry_accepts_confirmed_wrong_code_item(scenario):
     assert scenario.gateway.prepared_code_languages == [("python3.12",)]
     assert scenario.gateway.sent == [("201", CodeReplyDTO("python3.12", "print('fixed')"))]
     item = await scenario.items.get_item("account", "run", "code1")
+    assert item is not None
+    assert item.state is ItemState.CORRECT
+    assert item.attempt_id == "201"
+
+
+@pytest.mark.anyio
+async def test_retry_accepts_confirmed_wrong_string_item(scenario):
+    await scenario.seed_wrong_string()
+    request = CommitBatchInputDTO(
+        "run",
+        "retry-string",
+        "retry",
+        (CommitAnswerDTO("string1", TextAnswerDTO("fixed")),),
+        None,
+    )
+
+    result = await scenario.commit.execute(request)
+
+    assert result.receipts[0].submission_id == "301"
+    assert scenario.gateway.attempts == ["60"]
+    assert scenario.gateway.sent == [("201", TextReplyDTO("fixed"))]
+    item = await scenario.items.get_item("account", "run", "string1")
     assert item is not None
     assert item.state is ItemState.CORRECT
     assert item.attempt_id == "201"
