@@ -59,7 +59,7 @@ def build_mcp(settings: Settings) -> MCPServer:
     mcp.add_tool(
         bind_handler(stepik_batch_commit, container),
         name="stepik_batch_commit",
-        description="Save or submit answers; retry confirmed wrong number items with action=retry.",
+        description="Save or submit answers; retry confirmed wrong number or code items with action=retry.",
     )
     mcp.add_tool(
         bind_handler(stepik_results_collect, container), name="stepik_results_collect", description="Collect outcomes."

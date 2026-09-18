@@ -507,7 +507,17 @@ class CommitBatch:
     ) -> SubmissionReceiptDTO:
         if action == "retry":
             attempt = await self._attempts.prepare_attempt(
-                TaskDTO(item.step_id, item.assignment_id, run.course_id, item.kind, item.question, None, False, True)
+                TaskDTO(
+                    item.step_id,
+                    item.assignment_id,
+                    run.course_id,
+                    item.kind,
+                    item.question,
+                    None,
+                    False,
+                    True,
+                    code_languages=item.code_languages,
+                )
             )
             item = replace(
                 item,
@@ -560,8 +570,8 @@ class CommitBatch:
     async def _validate_retry(
         self, account: str, run_id: str, selected: tuple[ItemDTO, ...], previous: dict[str, SubmissionDTO]
     ) -> None:
-        if any(item.kind != "number" for item in selected):
-            msg = "retry currently supports only confirmed wrong number items"
+        if any(item.kind not in {"number", "code"} for item in selected):
+            msg = "retry currently supports only confirmed wrong number or code items"
             raise ValidationError(msg)
         ids = {item.id for item in selected}
         unresolved = await self._operations.unresolved_operations(account, run_id)

@@ -9,6 +9,8 @@ from stepik_autopilot.application.dto import (
     AttemptDTO,
     BatchDTO,
     ChoiceTaskDTO,
+    CodeAnswerDTO,
+    CodeReplyDTO,
     CollectResultsInputDTO,
     CommitAnswerDTO,
     CommitBatchInputDTO,
@@ -68,6 +70,7 @@ class Gateway:
         self.remote: dict[str, RemoteSubmissionDTO] = {}
         self.sent: list[tuple[str, ReplyDTO]] = []
         self.attempts: list[str] = []
+        self.prepared_code_languages: list[tuple[str, ...]] = []
         self.tasks: tuple[TaskDTO, ...] = ()
         self.quiz_data: dict[str, dict[str, object]] = {}
         self.template_reads: list[tuple[str, ...]] = []
@@ -78,6 +81,7 @@ class Gateway:
 
     async def prepare_attempt(self, task: TaskDTO) -> AttemptDTO:
         self.attempts.append(task.step_id)
+        self.prepared_code_languages.append(task.code_languages)
         return AttemptDTO(
             str(200 + len(self.attempts)),
             task.step_id,
@@ -221,6 +225,33 @@ class Scenario:
             )
         )
 
+    async def seed_wrong_code(self) -> None:
+        item = ItemDTO(
+            "code1",
+            "run",
+            "50",
+            "1",
+            "code",
+            "question",
+            ItemState.WRONG,
+            attempt_id="50",
+            batch_id="old",
+            code_languages=("python3.12",),
+        )
+        old_reply = CodeReplyDTO("python3.12", "print('wrong')")
+        await self.items.add_items((item,))
+        await self.operations.create_operation(
+            OperationDTO(
+                "old-code", "account", item.id, "50", old_reply, OperationState.ACCEPTED, hash_reply(old_reply), "50"
+            )
+        )
+        await self.submissions.create_submission(
+            SubmissionDTO(
+                "s-code", item.id, DeliveryState.ACCEPTED, ItemState.WRONG, "50", hash_reply(old_reply), "old-code"
+            )
+        )
+        self.gateway.remote["50"] = RemoteSubmissionDTO("50", ItemState.WRONG, None, False)
+
 
 @pytest.fixture
 def anyio_backend() -> str:
@@ -283,6 +314,29 @@ async def test_retry_keeps_run_leases_history_and_current_results(scenario):
     assert len(rows) == 4
     assert rows[0]["request_payload"]["reply"] == {"kind": "text", "text": "5"}
     assert rows[2]["request_payload"]["reply"] == {"kind": "number", "number": "5"}
+
+
+@pytest.mark.anyio
+async def test_retry_accepts_confirmed_wrong_code_item(scenario):
+    await scenario.seed_wrong_code()
+    request = CommitBatchInputDTO(
+        "run",
+        "retry-code",
+        "retry",
+        (CommitAnswerDTO("code1", CodeAnswerDTO("python3.12", "print('fixed')")),),
+        None,
+    )
+
+    result = await scenario.commit.execute(request)
+
+    assert result.receipts[0].submission_id == "301"
+    assert scenario.gateway.attempts == ["50"]
+    assert scenario.gateway.prepared_code_languages == [("python3.12",)]
+    assert scenario.gateway.sent == [("201", CodeReplyDTO("python3.12", "print('fixed')"))]
+    item = await scenario.items.get_item("account", "run", "code1")
+    assert item is not None
+    assert item.state is ItemState.CORRECT
+    assert item.attempt_id == "201"
 
 
 @pytest.mark.anyio
